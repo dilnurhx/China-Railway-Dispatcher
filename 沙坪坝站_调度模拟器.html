@@ -55,6 +55,8 @@
   .queue .item .tm { color:var(--dim); font-family:Consolas,monospace; }
   .queue .item .dir { margin-left:auto; color:var(--dim); font-size:12px; }
   .queue .item.warn { border-color:var(--red); }
+  .queue .item.disabled { opacity:.5; cursor:not-allowed; }
+  .queue .item.disabled:hover { border-color:transparent; }
   .tip { font-size:12px; color:var(--dim); line-height:1.8; }
   .tip b { color:var(--accent); }
   .stats { font-size:12px; color:var(--dim); line-height:1.9; }
@@ -67,6 +69,9 @@
   .lg-kua { background:#12283a; color:#4aa8ff; }
   .lg-zhan { background:#122a1e; color:#3ecf8e; }
   .lg-late { background:#3a1212; color:#ff6b6b; }
+  .lg-early { background:#12301f; color:#3ecf8e; }
+  .lg-ontime { background:#1b2530; color:#a8b6c6; }
+  .lg-todo { background:#1b2530; color:#5d6b7c; }
   .tab-row { display:flex; gap:6px; margin-bottom:8px; }
   .tab-btn {
     flex:1; background:var(--panel2); color:var(--dim); border:1px solid var(--border);
@@ -87,6 +92,14 @@
   .tt-tag.kua { background:#12283a; color:#4aa8ff; }
   .tt-tag.zhan { background:#122a1e; color:#3ecf8e; }
   .tt-late { font-size:10px; color:#ff6b6b; font-weight:700; flex-shrink:0; }
+  /* 判定结果标签：早点 / 正点 / 晚点 三态，外加办理中/待办（S14） */
+  .tt-judge { font-size:10px; padding:0 5px; border-radius:3px; flex-shrink:0; white-space:nowrap; }
+  .tt-judge.late   { background:#3a1212; color:#ff6b6b; font-weight:700; }
+  .tt-judge.early  { background:#12301f; color:#3ecf8e; font-weight:700; }
+  .tt-judge.ontime { background:#1b2530; color:#a8b6c6; }
+  .tt-judge.busy   { background:#12283a; color:#4aa8ff; }
+  .tt-judge.todo   { background:#1b2530; color:#5d6b7c; }
+  .tt-row.settled  { opacity:.45; }
   .hintbar {
     padding:8px 18px; background:var(--panel); border-top:1px solid var(--border);
     font-size:12px; color:var(--dim); display:flex; gap:16px; flex-wrap:wrap;
@@ -125,6 +138,7 @@
     <button id="resetBtn" title="清空当前进度，回到 06:00 重开">🔄 重新开始</button>
   </div>
   <div class="score">
+    <span>早点 <b id="early">0</b></span>
     <span>正点 <b id="ontime">0</b></span>
     <span>晚点 <b id="delay">0</b></span>
     <span>车次 <b id="done">0/57</b></span>
@@ -157,7 +171,12 @@
         <span class="lg lg-biao">标杆</span>
         <span class="lg lg-kua">跨局</span>
         <span class="lg lg-zhan">站站乐</span>
+      </div>
+      <div class="legend-row">
+        <span class="lg lg-early">早点</span>
+        <span class="lg lg-ontime">正点</span>
         <span class="lg lg-late">晚点</span>
+        <span class="lg lg-todo">待办</span>
       </div>
       <div class="timetable" id="timetable"></div>
     </div>
@@ -560,7 +579,10 @@ const SIM_START = T(6,0);
 const SIM_END   = T(24,180);   // 次日03:00
 const ARRIVE_LEAD = 10;   // 到达车提前出现（游戏分钟）
 const DEPART_LEAD = 20;   // 发车车提前调入（游戏分钟）——发车前20分钟已在股道
-const DWELL = 20;         // 停站时长（游戏分钟）——到站20分钟后离场
+const DWELL = 15;         // 停站时长（游戏分钟）——自实际停稳起算15分钟（S03）
+const ENTER_DUR = 2.8;    // 进/出站动画时长（游戏分钟；1x下≈2.8现实秒，随倍速同步）（S09）
+const THROAT_HOLD = 3.0;  // 单次通过咽喉的占用时长（游戏分钟）（S08）
+const TOTAL = ARRIVE.length + DEPART.length;   // 总车次（29到达+28始发=57）
 
 /* ============ 列车分类与发车股道分配规则 ============ */
 // 标杆车（成渝直达，一站不停，历时约1h02-1h03m）
@@ -580,13 +602,14 @@ function classify(train){
 }
 
 // 按类型选发车股道（返回股道 id 1-7，无空闲返回 -1）
+// 注意：下面的 order 是"优先级顺序"，并非专属股道——首选被占用时会依次降级借用后续股道。
 function pickTrackForDepart(train){
   const type = classify(train);
   const free = (id) => TRACKS[id-1].type==='到发线' && !trackOccupied[id-1];
   let order;
-  if(type === '标杆')      order = [1, 2, 3, 6, 7];  // 标杆专属1道
-  else if(type === '跨局') order = [6, 7, 2, 3, 1];  // 跨局用67道
-  else                     order = [2, 3, 6, 7, 1];  // 站站乐23道→2367道→最后1道
+  if(type === '标杆')      order = [1, 2, 3, 6, 7];  // 标杆：优先1道；1道占用则降级借用 2/3/6/7 道
+  else if(type === '跨局') order = [6, 7, 2, 3, 1];  // 跨局：优先6/7道；被占则降级借用 2/3/1 道
+  else                     order = [2, 3, 6, 7, 1];  // 站站乐：优先2/3道，其次6/7道，最后1道
   for(const id of order){ if(free(id)) return id; }
   return -1;
 }
@@ -596,7 +619,7 @@ let gameTime = SIM_START;          // 当前游戏时间（分钟）
 let speed = 1;                     // 0暂停
 let selectedArrive = null;         // 正在选股道的到达车
 const THROAT_CAPACITY = 2;         // 咽喉并行能力：同时最多2列车通过
-let throatQueue = [];              // 咽喉占用队列，每个元素=剩余占用时间（真实秒）
+let throatQueue = [];              // 咽喉占用队列，每个元素=剩余占用时间（游戏分钟，S08）
 let logLines = [];
 
 // 股道占用
@@ -607,6 +630,9 @@ const trains = [];
 
 // 统计
 let ontimeCount = 0, delayCount = 0, doneCount = 0, totalDelay = 0;
+let earlyCount = 0;                // 早点计数（S14）
+let simEnded = false;              // 运行图时段是否已结束（S07：到点只停止受理，不等于全部完成）
+let finalDone = false;             // 收尾是否全部结束（S07）
 
 /* ============ 列车对象 ============ */
 // kind: 'arrive' | 'depart'
@@ -620,9 +646,15 @@ function makeTrain(kind, data){
     track: -1,             // 停靠股道 id (1-7)
     x: 0,                  // 屏幕x进度（0~1）
     spawnAt: kind==='arrive' ? data.at - ARRIVE_LEAD : data.dt - DEPART_LEAD,
-    enterStart: 0, enterDur: 0,   // 进站动画
-    dwellEnd: 0,                  // 停站结束时间
-    late: 0,                      // 晚点分钟
+    enterStart: 0, enterDur: 0,   // 进/出站动画：起点=游戏分钟，时长=游戏分钟（S09）
+    dwellEnd: 0,                  // 停站结束时刻（游戏分钟，实际停稳后才设置）（S03）
+    actualTime: null,             // 实际事件时刻：到达=实际停稳时刻，发车=实际开始驶离时刻（S18）
+    late: 0,                      // 晚点分钟（向上取整，>0）
+    early: 0,                     // 早点分钟（向上取整，>0）（S14）
+    judged: false,                // 是否已完成正/早/晚点判定（S14：只在事件实际发生时判定）
+    judgeKind: '',                // 'early' | 'ontime' | 'late'
+    judgeMin: 0,                  // 判定对应的分钟数
+    noTrackWarned: false,         // 是否已就"无空闲股道"提示过（S05：同状态只记一次）
   };
 }
 
@@ -638,41 +670,64 @@ let currentTab = 'arrive';   // 'arrive' | 'depart'
 
 // 判断某列车是否已处理完（从时刻表移除）
 function isSettled(t){
-  if(t.kind === 'arrive') return t.state !== 'waiting';        // 到达车：接车即处理完
-  return t.state === 'leaving' || t.state === 'done';          // 发车车：发车即处理完
+  // S12：真实完成条件——只有进入 done 才算完成。
+  // 到达车需停站结束并离场，发车车需驶离动画结束；进站中/停站中/驶离中均不算完成。
+  return t.state === 'done';
+}
+// 已开始办理但尚未完成（仅用于时刻表分区展示，不参与完成统计）
+function isDoing(t){
+  if(t.kind === 'arrive') return t.state === 'entering' || t.state === 'stopped';
+  return t.state === 'leaving';
+}
+
+// 单车的状态标签（S14：早点/正点/晚点三态统一展示；判定值来自事件实际发生时刻，不做实时推算）
+function ttJudgeTag(t){
+  if(t.judged){
+    if(t.judgeKind === 'late')  return `<span class="tt-judge late">晚点 ${t.judgeMin} 分</span>`;
+    if(t.judgeKind === 'early') return `<span class="tt-judge early">早点 ${t.judgeMin} 分</span>`;
+    return '<span class="tt-judge ontime">正点</span>';
+  }
+  if(t.state === 'entering') return '<span class="tt-judge busy">进站中</span>';
+  if(t.state === 'stopped')  return '<span class="tt-judge busy">停站中</span>';
+  if(t.state === 'ready')    return '<span class="tt-judge busy">待发车</span>';
+  if(t.state === 'leaving')  return '<span class="tt-judge busy">出站中</span>';
+  return '<span class="tt-judge todo">待办</span>';
 }
 
 function renderTimetable(){
   const el = document.getElementById('timetable');
   const isArr = currentTab === 'arrive';
-  const pending = trains.filter(t => t.kind === (isArr?'arrive':'depart') && !isSettled(t));
-  pending.sort((a,b)=>a.sched - b.sched);
+  const all = trains.filter(t => t.kind === (isArr?'arrive':'depart')).sort((a,b)=>a.sched-b.sched);
+  const finished = all.filter(isSettled);
+  const doing    = all.filter(t => !isSettled(t) && isDoing(t));
+  const pending  = all.filter(t => !isSettled(t) && !isDoing(t));
 
-  // 更新 tab 剩余数
+  // 更新 tab 数字：尚未完成数（含正在进站/停站/驶离的车次，S12 真实完成口径）
   const remainA = trains.filter(t => t.kind==='arrive' && !isSettled(t)).length;
   const remainD = trains.filter(t => t.kind==='depart' && !isSettled(t)).length;
   document.getElementById('ttRemain').textContent = remainA + remainD;
   document.getElementById('tabArriveN').textContent = remainA;
   document.getElementById('tabDepartN').textContent = remainD;
 
-  if(pending.length === 0){
-    el.innerHTML = '<div class="tip">该方向已全部处理完毕</div>';
-    return;
-  }
-  el.innerHTML = pending.map(t => {
+  const rowOf = (t) => {
     const tm = fmtTime(t.sched);
-    const late = gameTime > t.sched;
     const type = classify(t);
     const tagCls = type==='标杆' ? 'biao' : (type==='跨局' ? 'kua' : 'zhan');
     const place = t.kind==='arrive' ? t.from : t.to;
-    return `<div class="tt-row${late?' late':''}">
+    // 仅作"已过计划时刻仍未办理"的提示，不参与正/早/晚点判定
+    const overdue = !t.judged && gameTime > t.sched;
+    const cls = (t.state === 'done' ? ' settled' : '') + (overdue ? ' late' : '');
+    return `<div class="tt-row${cls}">
       <span class="tt-time">${tm.str}</span>
       <span class="tt-train">${t.train}</span>
       <span class="tt-place">${place}</span>
       <span class="tt-tag ${tagCls}">${type}</span>
-      ${late ? '<span class="tt-late">晚点</span>' : ''}
+      ${ttJudgeTag(t)}
     </div>`;
-  }).join('');
+  };
+
+  const rows = pending.map(rowOf).concat(doing.map(rowOf), finished.map(rowOf));
+  el.innerHTML = rows.length ? rows.join('') : '<div class="tip">该方向暂无车次</div>';
 }
 
 function switchTab(tab){
@@ -696,134 +751,202 @@ function log(msg, cls){
   if(logLines.length > 80) logLines.shift();
 }
 
+/* ============ 正/早/晚点统一判定（S01 / S04 / S14） ============
+   actual = 事件实际发生时刻（游戏分钟）：到达车为"实际停稳"时刻，发车车为"正式开始驶离"时刻。
+   判定严格基于事件发生时刻，不使用当前时钟临时推算。
+   d > 0 晚点（分钟数向上取整，至少 1，绝不出现"晚点 0 分"）
+   d < 0 早点（分钟数向上取整，至少 1）
+   d = 0 正点                                                        */
+function judgeTrain(train, actual){
+  const d = actual - train.sched;
+  train.judged = true;
+  train.actualTime = actual;                             // S18：记录实际事件时刻，供追溯
+  if(d > 1e-9){
+    train.late = d;
+    train.judgeKind = 'late';
+    train.judgeMin = Math.max(1, Math.ceil(d - 1e-6));   // S04：向上取整
+    delayCount++; totalDelay += d;
+  } else if(d < -1e-9){
+    train.early = -d;
+    train.judgeKind = 'early';
+    train.judgeMin = Math.max(1, Math.ceil(-d - 1e-6));
+    earlyCount++;
+  } else {
+    train.judgeKind = 'ontime';
+    train.judgeMin = 0;
+    ontimeCount++;
+  }
+  return train.judgeKind;
+}
+
 /* ============ 调度操作 ============ */
 function tryAccept(train){
+  if(simEnded){ log(`✖ 运行图时段已结束，不再受理接车（${train.train}）`, 'bad'); AU.play('invalid'); return; }   // S07
+  if(train.state !== 'waiting'){ return; }
   if(selectedArrive === train){ selectedArrive = null; return; }
   selectedArrive = train;
   AU.play('select');
   log(`选择接车 ${train.train}（${train.from}），请点站台股道`, 'info');
 }
 function tryAssignTrack(train, trackId){
+  if(!train) return;
+  if(simEnded){ log(`✖ ${train.train}：运行图时段已结束，不再受理接车`, 'bad'); AU.play('invalid'); return; }     // S07
   const tr = TRACKS[trackId-1];
   if(tr.type !== '到发线'){ log(`✖ ${train.train}：正线不办客`, 'bad'); AU.play('invalid'); return; }
   if(trackOccupied[trackId-1]){ log(`✖ ${train.train}：${tr.label}已被占用`, 'bad'); AU.play('invalid'); return; }
   if(throatQueue.length >= THROAT_CAPACITY){ log(`✖ ${train.train}：咽喉已满（${THROAT_CAPACITY}列并行中），请稍候`, 'bad'); AU.play('invalid'); return; }
-  // 正晚点判定（以接车排进路动作时刻为准，与进站动画时长无关）
-  if(gameTime > train.sched){
-    train.late = gameTime - train.sched;
-    delayCount++; totalDelay += train.late;
-    log(`⚠ ${train.train} 到达晚点 ${Math.round(train.late)} 分`, 'bad');
-  } else {
-    ontimeCount++;
-    log(`✓ ${train.train} 正点接入`, 'ok');
-  }
-  doneCount++;
+  // S01：此处不再判定早晚点（原来按"接车动作时刻"判定，会把早点误记为正点）
+  //      判定统一移到列车实际停稳、进入 stopped 状态时进行。
   // 开始进站
   train.state = 'entering';
   train.track = trackId;
   trackOccupied[trackId-1] = train;
-  throatQueue.push(3.0);   // 咽喉占用3真实秒
-  train.enterStart = performance.now();
-  train.enterDur = 2800;  // 进站动画毫秒
-  train.dwellEnd = gameTime + DWELL;
+  throatQueue.push(THROAT_HOLD);      // S08：占用时长改为游戏分钟
+  train.enterStart = gameTime;        // S09：动画起点用游戏时间
+  train.enterDur = ENTER_DUR;         // S09：动画时长用游戏分钟
+  train.dwellEnd = 0;                 // S03：停站时长自"实际停稳"起算，此处先清空
   selectedArrive = null;
   AU.play('assign');
   log(`→ ${train.train} 进 ${tr.label}（${tr.platform}）`, 'ok');
 }
 function tryDepart(train){
-  if(train.state !== 'ready') return;
-  if(throatQueue.length >= THROAT_CAPACITY){ log(`✖ ${train.train}：咽喉已满（${THROAT_CAPACITY}列并行中）`, 'bad'); AU.play('invalid'); return; }
-  // 判定是否晚点
-  if(gameTime > train.sched){
-    train.late = gameTime - train.sched;
-    delayCount++; totalDelay += train.late;
-    AU.play('late');
-    log(`⚠ ${train.train} 发车晚点 ${Math.round(train.late)} 分`, 'bad');
-  } else {
-    ontimeCount++;
-    AU.play('depart');
-    log(`← ${train.train} 发车 → ${train.to}`, 'ok');
+  if(train.state !== 'ready'){
+    // S11：待调入列车（尚未进入股道）不能发车，给出明确提示而不是静默返回
+    if(train.state === 'waiting'){
+      log(`⏳ ${train.train} 尚未调入股道，暂不能发车`, '');
+      AU.play('invalid');
+    }
+    return;
   }
+  if(simEnded){ log(`✖ ${train.train}：运行图时段已结束，不再受理发车`, 'bad'); AU.play('invalid'); return; }     // S07
+  if(throatQueue.length >= THROAT_CAPACITY){ log(`✖ ${train.train}：咽喉已满（${THROAT_CAPACITY}列并行中）`, 'bad'); AU.play('invalid'); return; }
+  // S02：必须到达计划发车时刻才允许发车（提前调入股道 ≠ 提前发车）
+  if(gameTime < train.sched){
+    const wait = Math.ceil(train.sched - gameTime - 1e-6);
+    log(`✖ ${train.train} 未到计划发车时刻（${fmtTime(train.sched).str}），还需等待 ${wait} 分`, 'bad');
+    AU.play('invalid');
+    return;
+  }
+  // S14：发车早晚点以"正式开始驶离"时刻为准
+  const k = judgeTrain(train, gameTime);
   train.state = 'leaving';
   // 不立即释放股道，等出站动画完成再释放（否则动画期间会被别的车调入同股道）
-  throatQueue.push(3.0);
-  train.enterStart = performance.now();
-  train.enterDur = 2800;
-  doneCount++;
+  throatQueue.push(THROAT_HOLD);      // S08
+  train.enterStart = gameTime;        // S09
+  train.enterDur = ENTER_DUR;
+  if(k === 'late'){
+    AU.play('late');
+    log(`⚠ ${train.train} 发车晚点 ${train.judgeMin} 分（计划 ${fmtTime(train.sched).str}）`, 'bad');
+  } else {
+    AU.play('depart');
+    log(`← ${train.train} 正点发车 → ${train.to}`, 'ok');
+  }
 }
 /* ============ 主循环 ============ */
 let lastTs = performance.now();
-let endNotified = false;
 function tick(ts){
   const dt = Math.min(0.1, (ts - lastTs)/1000);
   lastTs = ts;
-  // 时间推进
   if(speed > 0){
-    gameTime += dt * speed;   // 1现实秒 = speed 游戏分钟
-    if(gameTime >= SIM_END){
-      gameTime = SIM_END; speed = 0;
-      if(!endNotified){
-        endNotified = true;
-        AU.play('finish');
-        log('—— 运行图执行完毕（次日03:00），共57趟车次 ——', 'info');
+    // ---- 统一游戏时间：本帧唯一的时间尺度（S08/S09/S13）----
+    const dgt = dt * speed;          // 本帧推进的游戏分钟
+    gameTime += dgt;
+
+    // S07：到达运行图时段终点——只停止受理新调度，绝不宣告全部完成
+    if(!simEnded && gameTime >= SIM_END){
+      gameTime = SIM_END;
+      simEnded = true;
+      AU.play('finish');
+      log(`—— 次日03:00，运行图时段结束：停止受理新调度，已开始的作业继续完成（当前已完成 ${doneCount}/${TOTAL}）——`, 'info');
+    }
+    // 咽喉占用计时（游戏时间驱动：暂停冻结、加速同步）（S08）
+    if(throatQueue.length){
+      throatQueue = throatQueue.map(t => t - dgt).filter(t => t > 0);
+    }
+    // 列车状态推进（动画/停站/自动调度全部随游戏时间）（S09）
+    updateTrains();
+    audioFrame(dt);
+
+    // S07：时段结束后，等所有"已开始"的进站/停站/出站全部走完，才做最终结算
+    if(simEnded && !finalDone){
+      const active = trains.some(t => t.state==='entering' || t.state==='stopped' || t.state==='leaving');
+      if(!active){
+        finalDone = true;
+        speed = 0;
+        const undone = TOTAL - doneCount;
+        log(`—— 收尾完成：已完成 ${doneCount} 趟，未完成 ${undone} 趟 ——`, undone === 0 ? 'ok' : 'bad');
+        if(undone > 0){
+          const list = trains.filter(t => t.state !== 'done').map(t => t.train);
+          log(`未完成车次（保留未办理状态）：${list.join('、')}`, 'bad');
+        }
         document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>x.classList.remove('active'));
+        updateSidebar(); updateTopbar();
       }
     }
   }
-  // 咽喉占用计时（队列逐项递减，到期释放）
-  if(throatQueue.length){
-    throatQueue = throatQueue.map(t => t - dt).filter(t => t > 0);
-  }
-  // 触发列车状态
-  updateTrains(dt);
-  audioFrame(dt);
+  // speed === 0：gameTime 不推进、咽喉不递减、列车状态不变、自动调度不触发（S13）
   render();
   requestAnimationFrame(tick);
 }
 
-function updateTrains(dt){
+function updateTrains(){
   for(const t of trains){
     if(t.state === 'waiting'){
       if(gameTime >= t.spawnAt){
         if(t.kind === 'arrive'){
           // 等待玩家接车
-        } else {
-          // 发车车自动调入：按类型（标杆/跨局/站站乐）分配股道
+        } else if(!simEnded){                 // S07：时段结束后不再自动调入股道
+          // 发车车自动调入：按类型（标杆/跨局/站站乐）优先选择股道
           const id = pickTrackForDepart(t);
           if(id > 0){
             t.state = 'ready'; t.track = id; trackOccupied[id-1] = t;
+            t.noTrackWarned = false;
             const type = classify(t);
             log(`🚦 ${t.train}（${type}）已调入 ${TRACKS[id-1].label}，等待发车信号`, 'info');
-          } else {
+          } else if(!t.noTrackWarned){        // S05：同一阻塞状态只记一次
+            t.noTrackWarned = true;
             log(`⚠ ${t.train} 无空闲股道，暂缓调入`, 'bad');
           }
         }
       }
     } else if(t.state === 'entering'){
-      const p = (performance.now() - t.enterStart) / t.enterDur;
-      t.x = Math.min(1, p);
+      // S09：进度按游戏时间计算，暂停即冻结
+      const p = (gameTime - t.enterStart) / t.enterDur;
+      t.x = Math.min(1, Math.max(0, p));
       if(p >= 1){
-        t.state = 'stopped'; t.x = 1; AU.play('arrive');
+        t.state = 'stopped'; t.x = 1;
+        t.dwellEnd = gameTime + DWELL;        // S03：停站自"实际停稳"起算15分钟
+        const k = judgeTrain(t, gameTime);    // S01/S14：到达早晚点在实际停稳时判定
+        AU.play('arrive');
+        if(k === 'late'){
+          AU.play('late');
+          log(`⚠ ${t.train} 到达晚点 ${t.judgeMin} 分（计划 ${fmtTime(t.sched).str}）`, 'bad');
+        } else if(k === 'early'){
+          log(`✓ ${t.train} 早点 ${t.judgeMin} 分到达（计划 ${fmtTime(t.sched).str}）`, 'ok');
+        } else {
+          log(`✓ ${t.train} 正点到达`, 'ok');
+        }
       }
     } else if(t.state === 'stopped'){
-      if(t.kind === 'arrive' && gameTime >= t.dwellEnd){
-        // 到达车停站结束，离场（折返入库）
+      if(t.kind === 'arrive' && t.dwellEnd > 0 && gameTime >= t.dwellEnd){
+        // 到达车停站结束，直接从站场消失并释放股道（不增加折返/入库动画）
         trackOccupied[t.track-1] = null;
         t.state = 'done';
-        log(`${t.train} 停站完毕离场`, '');
+        doneCount++;                          // S12：真正完成才计入
+        log(`${t.train} 停站 ${DWELL} 分钟完毕，离场`, '');
       }
     } else if(t.state === 'ready'){
-      // 发车车等待玩家放行；若晚点提示
+      // 等待玩家放行；发车时刻检查在 tryDepart 中（S02）
     } else if(t.state === 'leaving'){
-      const p = (performance.now() - t.enterStart) / t.enterDur;
-      t.x = 1 - Math.min(1, p);
+      const p = (gameTime - t.enterStart) / t.enterDur;
+      t.x = 1 - Math.min(1, Math.max(0, p));
       if(p >= 1){
         t.state = 'done'; t.x = 0;
-        trackOccupied[t.track-1] = null;   // 出站动画完成才释放股道
+        trackOccupied[t.track-1] = null;       // 出站动画完成才释放股道
+        doneCount++;                           // S12：真正完成才计入
       }
     }
   }
-  // 待接车若错过时刻，标记晚点警告（不自动接，保持手动）
 }
 
 /* ============ 渲染 ============ */
@@ -966,6 +1089,28 @@ function drawPlatform(P, idx, name, y0, y1, type){
   ctx.setLineDash([]);
 }
 
+/* S06：等待区排布——按数量动态压缩行距，永不重叠。
+   绘制(drawTrains)与命中(hitTest)共用同一份坐标，保证点击区域与视觉完全一致、互不冲突。 */
+function waitSlots(L, list, area){
+  const n = list.length;
+  if(!n) return [];
+  const len = 46;
+  const x = L.throatX0 - 8 - len;
+  const mid = (L.top + L.bottom) / 2;
+  let y0, y1;
+  if(area === 'top'){ y0 = L.top + 10;   y1 = mid - 6; }        // 到达车等待区：上半部
+  else              { y0 = mid + 6;      y1 = L.bottom - 18; }  // 待调车等待区：下半部
+  const availH = Math.max(24, y1 - y0);
+  const rowH = Math.max(7, Math.min(26, availH / n));
+  const ph = Math.max(6, Math.min(14, rowH - 3));
+  const out = [];
+  for(let i=0;i<n;i++){
+    const y = area === 'top' ? (y0 + i*rowH) : (y1 - i*rowH - ph);
+    out.push({ t: list[i], x, y, h: ph, rowH, hitTop: area==='top' ? y-1 : y-1, hitBottom: area==='top' ? y+rowH : y+ph+1 });
+  }
+  return out;
+}
+
 function drawTrains(L){
   const {trackX0, trackX1, ys, throatX0} = L;
   const len = 46, h = 14;
@@ -986,21 +1131,19 @@ function drawTrains(L){
     }
     drawTrainShape(x, y, len, h, t);
   }
-  // 待接车：到达车（画在咽喉外等待）
+  // 待接车：到达车（咽喉外上半部等待）
   const waitingArrives = trains.filter(t=>t.state==='waiting' && t.kind==='arrive' && gameTime>=t.spawnAt);
-  waitingArrives.forEach((t, idx)=>{
-    const wy = L.top + 8 + (idx % 6) * 26;
-    drawTrainShape(throatX0-8-len, wy, len, h, t, true);
+  waitSlots(L, waitingArrives, 'top').forEach(s=>{
+    drawTrainShape(s.x, s.y, len, s.h, s.t, true);
   });
-  // 待调入：发车车（无空闲股道，画在咽喉下方等待）
+  // 待调入：发车车（无空闲股道，咽喉外下半部等待）
   const waitingDeparts = trains.filter(t=>t.state==='waiting' && t.kind==='depart' && gameTime>=t.spawnAt);
-  waitingDeparts.forEach((t, idx)=>{
-    const wy = L.bottom - 30 - (idx % 6) * 26;
-    drawTrainShape(throatX0-8-len, wy, len, h, t, true);
-    const tc = classify(t) === '标杆' ? '#f0c030' : (classify(t) === '跨局' ? '#4aa8ff' : '#3ecf8e');
+  waitSlots(L, waitingDeparts, 'bottom').forEach(s=>{
+    drawTrainShape(s.x, s.y, len, s.h, s.t, true);
+    const tc = classify(s.t) === '标杆' ? '#f0c030' : (classify(s.t) === '跨局' ? '#4aa8ff' : '#3ecf8e');
     ctx.fillStyle = tc; ctx.font='11px "Microsoft YaHei"';
-    ctx.textAlign='left';
-    ctx.fillText(t.train + ' 待调入', throatX0-8, wy+h/2+4);
+    ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+    ctx.fillText(s.t.train + ' 待调入', s.x+len+4, s.y+s.h/2+4);
   });
 }
 
@@ -1009,10 +1152,11 @@ function drawTrainShape(x, y, len, h, t, waiting){
   const isArrive = t.kind === 'arrive';
   const type = classify(t);
   const col = type === '标杆' ? '#f0c030' : (type === '跨局' ? '#4aa8ff' : '#3ecf8e');
+  // 闪烁同样由游戏时间驱动（每 0.4 游戏分钟切换），暂停即冻结
+  const blinkOn = (Math.floor(gameTime * 2.5) % 2) === 0;
   ctx.save();
   if(waiting){
-    const blink = Math.floor(performance.now()/400)%2===0;
-    ctx.globalAlpha = blink ? 1 : 0.55;
+    ctx.globalAlpha = blinkOn ? 1 : 0.55;
   }
   // 车头（尖头）
   ctx.fillStyle = col;
@@ -1030,16 +1174,16 @@ function drawTrainShape(x, y, len, h, t, waiting){
   // 车顶亮条
   ctx.fillStyle = '#ffffff'; ctx.globalAlpha *= 0.9;
   ctx.fillRect(x+6, y+2, len-14, 3);
-  ctx.globalAlpha = waiting ? (Math.floor(performance.now()/400)%2===0?1:0.55) : 1;
+  ctx.globalAlpha = waiting ? (blinkOn?1:0.55) : 1;
   // 车次号
   ctx.fillStyle = '#fff'; ctx.font='bold 10px Consolas';
   ctx.textAlign='center'; ctx.textBaseline='middle';
   ctx.fillText(t.train, x+len/2, y+h/2+0.5);
   ctx.restore();
-  // 待接车车次标签
-  if(waiting){
+  // 待接车车次标签（仅到达车；待调车的标签由 drawTrains 统一绘制，避免互相覆盖）
+  if(waiting && isArrive){
     ctx.fillStyle = col; ctx.font='11px "Microsoft YaHei"';
-    ctx.textAlign='left';
+    ctx.textAlign='left'; ctx.textBaseline='alphabetic';
     ctx.fillText(t.train + ' ' + t.from, x+len+4, y+h/2+4);
   }
 }
@@ -1086,17 +1230,23 @@ function updateSidebar(){
   dep.forEach(t=>{
     const late = gameTime > t.sched;
     const notReady = t.state === 'waiting';
+    const notYet = !notReady && gameTime < t.sched;      // S02：已进股道但未到计划发车时刻
     const div = document.createElement('div');
-    div.className = 'item' + (late?' warn':'');
-    div.innerHTML = `<span class="tn">${t.train}</span><span class="tm">${fmtTime(t.sched).str}</span><span class="dir">${notReady?'⏳待调入':t.to}${late?' ⚠':''}</span>`;
+    // S11：待调入列车禁用发车——灰色不可点样式 + 点击给出明确提示（不静默返回）
+    div.className = 'item' + (late?' warn':'') + (notReady?' disabled':'');
+    const dirTxt = notReady ? '⏳待调入'
+                 : (notYet ? `${t.to}（未到点 ${Math.ceil(t.sched - gameTime - 1e-6)} 分）` : t.to);
+    div.innerHTML = `<span class="tn">${t.train}</span><span class="tm">${fmtTime(t.sched).str}</span><span class="dir">${dirTxt}${late?' ⚠':''}</span>`;
     div.onclick = ()=>tryDepart(t);
     dq.appendChild(div);
   });
 
+  const undone = TOTAL - doneCount;
   document.getElementById('statsBox').innerHTML =
-    `已办车次 <b>${doneCount}</b> / 57<br>` +
-    `正点 <b style="color:#3ecf8e">${ontimeCount}</b>　晚点 <b style="color:#ff6b6b">${delayCount}</b><br>` +
-    `累计晚点 <b>${Math.round(totalDelay)}</b> 分钟`;
+    `已完成 <b>${doneCount}</b> / ${TOTAL}　<span style="color:${undone?'#ff6b6b':'#3ecf8e'}">未完成 ${undone}</span><br>` +
+    `早点 <b style="color:#3ecf8e">${earlyCount}</b>　正点 <b style="color:#a8b6c6">${ontimeCount}</b>　晚点 <b style="color:#ff6b6b">${delayCount}</b><br>` +
+    `累计晚点 <b>${Math.ceil(totalDelay - 1e-9)}</b> 分钟` +
+    (simEnded ? `<br><span style="color:#f0a030">运行图时段已结束（${finalDone?'收尾完成':'收尾中，等待已开始作业完成'}）</span>` : '');
 
   const lb = document.getElementById('logBox');
   lb.innerHTML = logLines.map(l=>`<div class="${l.cls}">${l.txt}</div>`).join('');
@@ -1108,16 +1258,23 @@ function updateSidebar(){
 function updateTopbar(){
   const t = fmtTime(gameTime);
   document.getElementById('clockText').textContent = t.str;
-  document.getElementById('clockDay').textContent = '第' + t.day + '日';
+  document.getElementById('clockDay').textContent = '第' + t.day + '日' + (simEnded ? '（运行图已结束）' : '');
+  document.getElementById('early').textContent = earlyCount;
   document.getElementById('ontime').textContent = ontimeCount;
   document.getElementById('delay').textContent = delayCount;
-  document.getElementById('done').textContent = doneCount + '/57';
+  document.getElementById('done').textContent = doneCount + '/' + TOTAL;
 }
 
 /* ============ 事件 ============ */
 // 加速按钮（只绑定带 data-s 的按钮，排除重置按钮）
 document.querySelectorAll('#speedGroup button[data-s]').forEach(b=>{
   b.addEventListener('click', ()=>{
+    // S15：最终收尾完成后，模拟已彻底结束，不允许再推进时间
+    if(finalDone){
+      log('运行图已结束，模拟不可再推进（如需重玩请点"重新开始"）', 'bad');
+      AU.play('invalid');
+      return;
+    }
     speed = parseInt(b.dataset.s);
     document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>x.classList.remove('active'));
     b.classList.add('active');
@@ -1132,11 +1289,13 @@ function resetGame(){
   speed = 1;
   selectedArrive = null;
   throatQueue = [];
-  endNotified = false;
+  simEnded = false;          // S07：运行图时段结束标志
+  finalDone = false;         // S07：收尾完成标志
   logLines = [];
   for(let i=0;i<7;i++) trackOccupied[i] = null;
   trains.length = 0;
   ontimeCount = delayCount = doneCount = totalDelay = 0;
+  earlyCount = 0;            // S14：早点计数
   init();
   // 恢复 1x 高亮
   document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>{
@@ -1147,18 +1306,22 @@ function resetGame(){
   updateTopbar();
 }
 
-// 命中检测：返回 {type:'accept'|'depart'|'track', ...}
+// 命中检测：返回 {type:'accept'|'waitingDepart'|'depart'|'track', ...}
 function hitTest(mx, my){
   const L = layout();
   const len = 46, h = 14;
-  // 1. 咽喉外待接车（等待区，从上往下排队）
+  // 1. 咽喉外待接车（S06：与 drawTrains 共用 waitSlots，坐标与命中区完全一致）
   const wArr = trains.filter(t=>t.state==='waiting' && t.kind==='arrive' && gameTime>=t.spawnAt);
-  for(let idx=0; idx<wArr.length; idx++){
-    const t = wArr[idx];
-    const wy = L.top + 8 + (idx%6)*26;
-    const x0 = L.throatX0-8-len, x1 = L.throatX0-8;
-    if(mx >= x0 && mx <= x1+50 && my >= wy-3 && my <= wy+h+3){
-      return {type:'accept', train:t};
+  for(const s of waitSlots(L, wArr, 'top')){
+    if(mx >= s.x && mx <= s.x+len+62 && my >= s.hitTop && my <= s.hitBottom){
+      return {type:'accept', train:s.t};
+    }
+  }
+  // 1b. 咽喉外待调入的发车车：点击给出明确提示（S11）
+  const wDep = trains.filter(t=>t.state==='waiting' && t.kind==='depart' && gameTime>=t.spawnAt);
+  for(const s of waitSlots(L, wDep, 'bottom')){
+    if(mx >= s.x && mx <= s.x+len+72 && my >= s.hitTop && my <= s.hitBottom){
+      return {type:'waitingDepart', train:s.t};
     }
   }
   // 2. 股道上的待发车（ready，右侧尽头停靠）
@@ -1194,6 +1357,7 @@ cv.addEventListener('click', (e)=>{
   if(!hit) return;
   if(hit.type === 'accept'){ tryAccept(hit.train); }
   else if(hit.type === 'depart'){ tryDepart(hit.train); }
+  else if(hit.type === 'waitingDepart'){ tryDepart(hit.train); }   // S11：走同一提示逻辑
   else if(hit.type === 'track'){ tryAssignTrack(selectedArrive, hit.trackId); }
 });
 
