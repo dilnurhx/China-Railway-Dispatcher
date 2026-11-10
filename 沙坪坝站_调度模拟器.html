@@ -1,0 +1,1224 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>沙坪坝站 · 调度模拟器（2026 Q2 运行图）</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161d27; --panel2: #1e2734; --border: #2d3a4a;
+    --text: #e6edf3; --dim: #8b98a9; --accent: #f0a030; --blue: #4aa8ff;
+    --green: #3ecf8e; --red: #ff6b6b; --purple: #b48cff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:"Segoe UI","Microsoft YaHei",sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  .topbar {
+    display:flex; align-items:center; gap:16px; padding:10px 18px;
+    background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap;
+  }
+  .topbar h1 { font-size:17px; font-weight:700; white-space:nowrap; }
+  .topbar .sub { font-size:12px; color:var(--dim); }
+  .clock {
+    font-family:Consolas,monospace; font-size:22px; font-weight:700; color:var(--accent);
+    background:var(--panel2); padding:4px 14px; border-radius:8px; border:1px solid var(--border);
+  }
+  .clock .d { font-size:12px; color:var(--dim); font-weight:400; }
+  .speed-group { display:flex; gap:4px; }
+  .speed-group button {
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600;
+  }
+  .speed-group button:hover { border-color:var(--accent); }
+  .speed-group button.active { background:var(--accent); color:#1a1405; border-color:var(--accent); }
+  .speed-group #resetBtn { border-color:var(--red); color:var(--red); }
+  .speed-group #resetBtn:hover { background:var(--red); color:#1a0505; border-color:var(--red); }
+  .score { display:flex; gap:14px; margin-left:auto; font-size:13px; }
+  .score b { color:var(--accent); font-size:16px; }
+  .main { flex:1; display:flex; min-height:0; }
+  .stage { flex:1; position:relative; background:#0a0e14; min-width:0; }
+  canvas { display:block; width:100%; height:100%; }
+  .sidebar {
+    width:320px; background:var(--panel); border-left:1px solid var(--border);
+    display:flex; flex-direction:column; overflow-y:auto; padding:12px; gap:12px;
+  }
+  .panel { background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:10px; }
+  .panel h3 { font-size:13px; color:var(--blue); margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+  .panel h3 .n { background:var(--blue); color:#06121f; border-radius:10px; padding:0 7px; font-size:11px; }
+  .queue { max-height:180px; overflow-y:auto; }
+  .queue .item {
+    display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px;
+    margin-bottom:4px; font-size:13px; background:var(--panel); cursor:pointer;
+    border:1px solid transparent;
+  }
+  .queue .item:hover { border-color:var(--accent); }
+  .queue .item .tn { font-weight:700; color:var(--text); }
+  .queue .item .tm { color:var(--dim); font-family:Consolas,monospace; }
+  .queue .item .dir { margin-left:auto; color:var(--dim); font-size:12px; }
+  .queue .item.warn { border-color:var(--red); }
+  .tip { font-size:12px; color:var(--dim); line-height:1.8; }
+  .tip b { color:var(--accent); }
+  .stats { font-size:12px; color:var(--dim); line-height:1.9; }
+  .stats b { color:var(--text); }
+  .log { font-size:11px; color:var(--dim); max-height:120px; overflow-y:auto; line-height:1.6; font-family:Consolas,monospace; }
+  .log .ok { color:var(--green); } .log .bad { color:var(--red); } .log .info { color:var(--blue); }
+  .legend-row { display:flex; gap:8px; margin-bottom:6px; }
+  .lg { font-size:11px; padding:1px 8px; border-radius:3px; }
+  .lg-biao { background:#3a2b12; color:#f0a030; }
+  .lg-kua { background:#12283a; color:#4aa8ff; }
+  .lg-zhan { background:#122a1e; color:#3ecf8e; }
+  .lg-late { background:#3a1212; color:#ff6b6b; }
+  .tab-row { display:flex; gap:6px; margin-bottom:8px; }
+  .tab-btn {
+    flex:1; background:var(--panel2); color:var(--dim); border:1px solid var(--border);
+    padding:5px 8px; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600;
+  }
+  .tab-btn:hover { border-color:var(--accent); }
+  .tab-btn.active { background:var(--accent); color:#1a1405; border-color:var(--accent); }
+  .tab-btn .tb-n { font-size:11px; opacity:0.8; }
+  .timetable { max-height:300px; overflow-y:auto; font-size:12px; }
+  .tt-row { display:flex; align-items:center; gap:6px; padding:3px 4px; border-bottom:1px solid #1a2230; }
+  .tt-row.late { background:#2a1414; }
+  .tt-row .tt-time { font-family:Consolas,monospace; color:var(--dim); width:52px; flex-shrink:0; }
+  .tt-row.late .tt-time { color:#ff6b6b; }
+  .tt-row .tt-train { font-weight:700; color:var(--text); width:66px; flex-shrink:0; }
+  .tt-row .tt-place { color:var(--dim); flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tt-row .tt-tag { font-size:10px; padding:0 6px; border-radius:3px; flex-shrink:0; }
+  .tt-tag.biao { background:#3a2b12; color:#f0a030; }
+  .tt-tag.kua { background:#12283a; color:#4aa8ff; }
+  .tt-tag.zhan { background:#122a1e; color:#3ecf8e; }
+  .tt-late { font-size:10px; color:#ff6b6b; font-weight:700; flex-shrink:0; }
+  .hintbar {
+    padding:8px 18px; background:var(--panel); border-top:1px solid var(--border);
+    font-size:12px; color:var(--dim); display:flex; gap:16px; flex-wrap:wrap;
+  }
+  .hintbar b { color:var(--accent); }
+
+  /* ---- 音频控制条（右上角） ---- */
+  .audio-box {
+    display:flex; align-items:center; gap:9px; flex-shrink:0;
+    padding:5px 11px; background:var(--panel2); border:1px solid var(--border); border-radius:8px;
+  }
+  .audio-box button {
+    font-size:15px; line-height:1; padding:4px 7px; cursor:pointer;
+    background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px;
+  }
+  .audio-box button:hover { border-color:var(--accent); }
+  .audio-box button.off { opacity:.42; }
+  .audio-box .vol { display:flex; align-items:center; gap:4px; font-size:11px; color:var(--dim); }
+  .audio-box input[type=range] { width:58px; accent-color:var(--accent); cursor:pointer; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>沙坪坝站 · 调度模拟器</h1>
+    <div class="sub">成渝高铁尽头式车站 · 3台7线（含正线） · 2026 Q2 运行图</div>
+  </div>
+  <div class="clock"><span id="clockText">06:00</span> <span class="d" id="clockDay">第1日</span></div>
+  <div class="speed-group" id="speedGroup">
+    <button data-s="0">⏸</button>
+    <button data-s="1" class="active">1x</button>
+    <button data-s="2">2x</button>
+    <button data-s="4">4x</button>
+    <button data-s="8">8x</button>
+    <button id="resetBtn" title="清空当前进度，回到 06:00 重开">🔄 重新开始</button>
+  </div>
+  <div class="score">
+    <span>正点 <b id="ontime">0</b></span>
+    <span>晚点 <b id="delay">0</b></span>
+    <span>车次 <b id="done">0/57</b></span>
+  </div>
+  <div class="audio-box" title="程序化实时合成音频（无音频文件）">
+    <button id="muteBtn" title="静音 / 取消静音">🔊</button>
+    <div class="vol"><span>♫</span><input type="range" id="bgmVol" min="0" max="100" value="45" title="背景音乐音量"></div>
+    <div class="vol"><span>◈</span><input type="range" id="sfxVol" min="0" max="100" value="70" title="音效音量"></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="stage"><canvas id="cv"></canvas></div>
+  <div class="sidebar">
+    <div class="panel">
+      <h3>🚂 待接车（到达，请排进路）<span class="n" id="arriveCount">0</span></h3>
+      <div class="queue" id="arriveQueue"></div>
+    </div>
+    <div class="panel">
+      <h3>🚦 待发车（出发，请放信号）<span class="n" id="departCount">0</span></h3>
+      <div class="queue" id="departQueue"></div>
+    </div>
+    <div class="panel">
+      <h3>🚄 列车时刻表 <span class="n" id="ttRemain">57</span></h3>
+      <div class="tab-row">
+        <button class="tab-btn active" id="tabArrive">到达 <span class="tb-n" id="tabArriveN">29</span></button>
+        <button class="tab-btn" id="tabDepart">发车 <span class="tb-n" id="tabDepartN">28</span></button>
+      </div>
+      <div class="legend-row">
+        <span class="lg lg-biao">标杆</span>
+        <span class="lg lg-kua">跨局</span>
+        <span class="lg lg-zhan">站站乐</span>
+        <span class="lg lg-late">晚点</span>
+      </div>
+      <div class="timetable" id="timetable"></div>
+    </div>
+    <div class="panel">
+      <h3>📊 运行统计</h3>
+      <div class="stats" id="statsBox"></div>
+    </div>
+    <div class="panel">
+      <h3>🗒 运行日志</h3>
+      <div class="log" id="logBox"></div>
+    </div>
+  </div>
+</div>
+
+<div class="hintbar">
+  <span><b>接车</b>：点左侧待接车 → 点站台股道</span>
+  <span><b>发车</b>：点右侧待发车列车放行</span>
+  <span><b>正线4/5道不办客</b>，接发车请选 1/2/3/6/7 道</span>
+</div>
+
+<script>
+"use strict";
+const AUDIO_MIN_PER_SEC = 1;   // 1现实秒对应的游戏分钟数（与 tick 中时间推进倍率一致）
+
+/* ==========================================================================
+   音频引擎 · Web Audio 程序化实时合成
+   —— 无音频文件、无外链、无版权；全部由 OscillatorNode + 代码生成混响 IR 合成。
+   BGM：五声音阶生成式氛围乐（风格致敬 Mini Metro），音符密度与亮度随繁忙度实时变化。
+   SFX：克制路线，低音量、软衰减、混响托底，融进背景而非打断。
+   ========================================================================== */
+const AU = (function(){
+  let ctx = null, master = null, comp = null, bgmBus = null, sfxBus = null, verb = null, verbSend = null;
+  let running = false, bgmTimer = null;
+  let padOscs = null, padGain = null, padFilter = null;
+  let tension = 0, tensionTarget = 0;
+  let lastWarnAt = 0;
+  let muted = false, bgmVol = 0.45, sfxVol = 0.70;
+  const LS = 'station_sim_audio_v1';
+
+  try{
+    const s = JSON.parse(localStorage.getItem(LS) || '{}');
+    if(typeof s.muted === 'boolean') muted = s.muted;
+    if(typeof s.bgmVol === 'number') bgmVol = Math.max(0, Math.min(1, s.bgmVol));
+    if(typeof s.sfxVol === 'number') sfxVol = Math.max(0, Math.min(1, s.sfxVol));
+  }catch(e){}
+  function save(){ try{ localStorage.setItem(LS, JSON.stringify({muted:muted, bgmVol:bgmVol, sfxVol:sfxVol})); }catch(e){} }
+
+  // 代码生成混响脉冲响应（噪声指数衰减），无需任何音频文件
+  function makeIR(sec, decay){
+    const rate = ctx.sampleRate, len = Math.max(1, Math.floor(rate*sec));
+    const buf = ctx.createBuffer(2, len, rate);
+    for(let c=0;c<2;c++){
+      const d = buf.getChannelData(c);
+      for(let i=0;i<len;i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, decay);
+    }
+    return buf;
+  }
+  function noiseBuf(sec){
+    const len = Math.max(1, Math.floor(ctx.sampleRate*sec));
+    const b = ctx.createBuffer(1, len, ctx.sampleRate), d = b.getChannelData(0);
+    for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
+    return b;
+  }
+
+  function ensure(){
+    if(ctx) return true;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return false;
+    try{ ctx = new AC(); }catch(e){ return false; }
+    master = ctx.createGain(); master.gain.value = muted ? 0 : 1; master.connect(ctx.destination);
+    comp = ctx.createDynamicsCompressor();
+    try{
+      comp.threshold.value = -16; comp.knee.value = 22; comp.ratio.value = 6;
+      comp.attack.value = 0.01; comp.release.value = 0.25;
+    }catch(e){}
+    comp.connect(master);
+    bgmBus = ctx.createGain(); bgmBus.gain.value = bgmVol; bgmBus.connect(comp);
+    sfxBus = ctx.createGain(); sfxBus.gain.value = sfxVol; sfxBus.connect(comp);
+    verb = ctx.createConvolver(); verb.buffer = makeIR(2.8, 2.6);
+    verbSend = ctx.createGain(); verbSend.gain.value = 0.55;
+    verbSend.connect(verb); verb.connect(comp);
+    return true;
+  }
+  function now(){ return ctx.currentTime; }
+
+  // 单音符：osc -> (可选滤波) -> ADSR gain -> bus + 混响送出；播完自动断连防节点泄漏
+  function tone(o){
+    if(!ctx) return;
+    const t0 = now() + (o.delay || 0);
+    const atk = o.atk == null ? 0.01 : o.atk;
+    const dur = o.dur == null ? 0.30 : o.dur;
+    const rel = o.rel == null ? 0.25 : o.rel;
+    const peak = o.gain == null ? 0.20 : o.gain;
+    const osc = ctx.createOscillator();
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(o.freq, t0);
+    if(o.glide) osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.glide), t0 + atk + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + atk + dur + rel);
+    let tail = osc;
+    if(o.filter){
+      const f = ctx.createBiquadFilter();
+      f.type = o.filter; f.frequency.value = o.cutoff || 1200; f.Q.value = o.q || 0.7;
+      osc.connect(f); tail = f;
+    }
+    tail.connect(g);
+    g.connect(o.bus || sfxBus);
+    if(o.verbAmt !== 0){
+      const s = ctx.createGain(); s.gain.value = (o.verbAmt == null ? 0.30 : o.verbAmt);
+      g.connect(s); s.connect(verbSend);
+    }
+    osc.start(t0); osc.stop(t0 + atk + dur + rel + 0.06);
+    osc.onended = function(){ try{ osc.disconnect(); g.disconnect(); if(tail !== osc) tail.disconnect(); }catch(e){} };
+  }
+
+  function noise(dur, gain, cutoff, q){
+    if(!ctx) return;
+    const src = ctx.createBufferSource(); src.buffer = noiseBuf(dur + 0.08);
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = cutoff; f.Q.value = q || 0.9;
+    const g = ctx.createGain(); const t0 = now();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(f); f.connect(g); g.connect(sfxBus);
+    const s = ctx.createGain(); s.gain.value = 0.22; g.connect(s); s.connect(verbSend);
+    src.start(t0); src.stop(t0 + dur + 0.05);
+    src.onended = function(){ try{ src.disconnect(); f.disconnect(); g.disconnect(); s.disconnect(); }catch(e){} };
+  }
+
+  /* ---------------- 音效定义（克制感：低音量、软起软收、混响托底） ---------------- */
+  const DEFS = {
+    // 选中列车：极短高亮"嗒"
+    select: function(){
+      tone({type:'triangle', freq:932.3, gain:0.055, atk:0.004, dur:0.045, rel:0.10, filter:'highpass', cutoff:420, verbAmt:0.12});
+    },
+    // 接车成功（分配股道）：中音上行两声
+    assign: function(){
+      tone({type:'triangle', freq:587.3, gain:0.070, atk:0.006, dur:0.085, rel:0.22, filter:'lowpass', cutoff:2600, verbAmt:0.28});
+      tone({type:'sine',     freq:880.0, gain:0.050, atk:0.006, dur:0.100, rel:0.36, delay:0.07, verbAmt:0.30});
+    },
+    // 进站停稳确认
+    arrive: function(){
+      tone({type:'sine', freq:523.3, gain:0.055, atk:0.012, dur:0.10, rel:0.48, filter:'lowpass', cutoff:1900, verbAmt:0.38});
+    },
+    // 发车：下行两声 + 一丝汽笛气声
+    depart: function(){
+      tone({type:'triangle', freq:784.0, gain:0.065, atk:0.008, dur:0.12, rel:0.30, filter:'lowpass', cutoff:2300, verbAmt:0.32});
+      tone({type:'sine',     freq:587.3, gain:0.055, atk:0.010, dur:0.14, rel:0.52, delay:0.12, verbAmt:0.44});
+      noise(0.18, 0.014, 1100, 0.7);
+    },
+    // 即将来车预警：柔和上行两声（A5 -> E6）
+    incoming: function(){
+      tone({type:'sine', freq:880.0,  gain:0.060, atk:0.020, dur:0.16, rel:0.50, verbAmt:0.45});
+      tone({type:'sine', freq:1318.5, gain:0.052, atk:0.020, dur:0.18, rel:0.62, delay:0.16, verbAmt:0.45});
+    },
+    // 非法操作：低沉闷响
+    invalid: function(){
+      tone({type:'square', freq:164.8, gain:0.040, atk:0.005, dur:0.10, rel:0.14, filter:'lowpass', cutoff:400, verbAmt:0.08});
+    },
+    // 晚点：小二度不和谐，提示但不刺耳
+    late: function(){
+      tone({type:'sawtooth', freq:311.1, gain:0.038, atk:0.010, dur:0.13, rel:0.24, filter:'lowpass', cutoff:850, verbAmt:0.18});
+      tone({type:'sawtooth', freq:329.6, gain:0.034, atk:0.010, dur:0.13, rel:0.24, filter:'lowpass', cutoff:850, verbAmt:0.18});
+    },
+    // 运行图执行完毕：上行琶音
+    finish: function(){
+      [0,4,7,12].forEach(function(s, i){
+        tone({type:'sine', freq:523.3*Math.pow(2, s/12), gain:0.060, atk:0.012, dur:0.20, rel:0.90, delay:i*0.11, verbAmt:0.60});
+      });
+    }
+  };
+
+  function play(name){
+    if(muted) return;
+    if(!ensure()) return;
+    if(ctx.state === 'suspended'){ try{ ctx.resume(); }catch(e){} }
+    const f = DEFS[name];
+    if(f){ try{ f(); }catch(e){} }
+  }
+
+  /* ---------------- BGM：五声音阶生成式氛围乐 ---------------- */
+  const PENTA = [0, 2, 4, 7, 9];               // C D E G A，随机游走也不刺耳
+  function sf(deg){
+    const oct = Math.floor(deg / 5), idx = ((deg % 5) + 5) % 5;
+    return 220 * Math.pow(2, (PENTA[idx] + 12*oct) / 12);
+  }
+  let melDeg = 8;
+  function step(){
+    if(!running || !ctx) return;
+    const tn = tension;
+    const gap = (2.5 - 1.7*tn) * 1000 + (Math.random()*300 - 150);   // 忙 -> 音符变密
+    if(Math.random() < 0.42 + 0.48*tn){                              // 旋律层
+      const mv = [-2,-1,-1,0,1,1,2][Math.floor(Math.random()*7)];
+      melDeg = Math.max(5, Math.min(17, melDeg + mv));
+      tone({type:'sine', freq:sf(melDeg), gain:0.045 + 0.030*tn, atk:0.30 + 0.20*(1-tn), dur:0.45,
+            rel:1.5 + 0.9*(1-tn), bus:bgmBus, filter:'lowpass', cutoff:700 + 2200*tn, verbAmt:0.60});
+    }
+    if(Math.random() < 0.14 + 0.44*tn){                              // 低频脉冲
+      tone({type:'triangle', freq:sf(0)*0.5, gain:0.070 + 0.045*tn, atk:0.02, dur:0.24, rel:0.85,
+            bus:bgmBus, filter:'lowpass', cutoff:380, verbAmt:0.22});
+    }
+    if(Math.random() < 0.16){                                        // 五度点缀（清冷感）
+      tone({type:'sine', freq:sf(melDeg + 3), gain:0.024, atk:0.45, dur:0.40, rel:2.1, bus:bgmBus, verbAmt:0.80});
+    }
+    bgmTimer = setTimeout(step, Math.max(220, gap));
+  }
+  function startPad(){                                               // 持续和弦垫 + 慢速LFO呼吸
+    if(padOscs || !ctx) return;
+    padGain = ctx.createGain(); padGain.gain.value = 0.0001;
+    padFilter = ctx.createBiquadFilter(); padFilter.type = 'lowpass';
+    padFilter.frequency.value = 520; padFilter.Q.value = 0.5;
+    padGain.connect(padFilter); padFilter.connect(bgmBus);
+    const vs = ctx.createGain(); vs.gain.value = 0.5; padFilter.connect(vs); vs.connect(verbSend);
+    padOscs = [];
+    [0, 7, 12, 19].forEach(function(semi, i){
+      const o = ctx.createOscillator();
+      o.type = i === 0 ? 'triangle' : 'sine';
+      o.frequency.value = 110 * Math.pow(2, semi/12);
+      o.detune.value = (i - 1.5) * 5;
+      const g = ctx.createGain(); g.gain.value = i === 0 ? 0.45 : 0.18;
+      o.connect(g); g.connect(padGain); o.start();
+      padOscs.push(o);
+    });
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.055;
+    const lg = ctx.createGain(); lg.gain.value = 0.012;
+    lfo.connect(lg); lg.connect(padGain.gain); lfo.start();
+    padOscs.push(lfo);
+    padGain.gain.setTargetAtTime(0.055, ctx.currentTime, 3.0);
+  }
+  function startBgm(){ if(running || !ctx) return; running = true; startPad(); step(); }
+  function stopBgm(){ running = false; if(bgmTimer){ clearTimeout(bgmTimer); bgmTimer = null; } }
+
+  /* ---------------- 对外接口 ---------------- */
+  function unlock(){
+    if(!ensure()) return;
+    if(ctx.state === 'suspended'){ try{ ctx.resume(); }catch(e){} }
+    if(!muted) startBgm();
+  }
+  function setMuted(m){
+    muted = !!m; save();
+    if(ctx && master) master.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.08);
+    if(muted) stopBgm();
+    else if(ensure()){ if(ctx.state === 'suspended'){ try{ ctx.resume(); }catch(e){} } startBgm(); }
+    return muted;
+  }
+  function setBgm(v){ bgmVol = Math.max(0, Math.min(1, v)); save(); if(ctx && bgmBus) bgmBus.gain.setTargetAtTime(bgmVol, ctx.currentTime, 0.05); }
+  function setSfx(v){ sfxVol = Math.max(0, Math.min(1, v)); save(); if(ctx && sfxBus) sfxBus.gain.setTargetAtTime(sfxVol, ctx.currentTime, 0.05); }
+
+  function frame(dt){                                   // 每帧：平滑繁忙度，调节pad亮度
+    tension += (tensionTarget - tension) * Math.min(1, dt * 0.35);
+    if(ctx && padFilter){
+      try{ padFilter.frequency.setTargetAtTime(520 + 1500*tension, ctx.currentTime, 0.6); }catch(e){}
+    }
+  }
+  function setTension(v){ tensionTarget = Math.max(0, Math.min(1, v)); }
+
+  function checkIncoming(list, gameTime, speed){        // 来车预警：提前约3现实秒，同刻不叠音
+    if(!ctx || muted || speed <= 0) return;
+    const lead = Math.max(4, 3 * speed * AUDIO_MIN_PER_SEC);
+    for(let i=0;i<list.length;i++){
+      const t = list[i];
+      if(t.warned || t.state !== 'waiting' || t.spawnAt == null) continue;
+      if(t.spawnAt - gameTime <= lead && t.spawnAt >= gameTime){
+        t.warned = true;
+        const nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        if(nowMs - lastWarnAt > 800){ lastWarnAt = nowMs; play('incoming'); }
+      }
+    }
+  }
+
+  return {
+    play: play, unlock: unlock, frame: frame, setTension: setTension, checkIncoming: checkIncoming,
+    setMuted: setMuted, setBgm: setBgm, setSfx: setSfx,
+    isMuted: function(){ return muted; },
+    ctxState: function(){ return ctx ? ctx.state : 'none'; },
+    getBgm: function(){ return bgmVol; }, getSfx: function(){ return sfxVol; },
+    tension: function(){ return tension; }
+  };
+})();
+
+// 繁忙度：咽喉占用 40% + 待处理积压 36% + 股道占用 24%
+function computeTension(){
+  let cap = 8;
+  try{ if(typeof THROAT_CAPACITY !== 'undefined') cap = THROAT_CAPACITY; }catch(e){}
+  let pending = 0;
+  for(let i=0;i<trains.length;i++) if(trains[i].state === 'waiting') pending++;
+  let occN = 0;
+  for(let i=0;i<trackOccupied.length;i++) if(trackOccupied[i]) occN++;
+  const throat = Math.min(1, throatQueue.length / Math.max(1, cap));
+  const occ = occN / Math.max(1, TRACKS.length);
+  return Math.min(1, 0.40*throat + 0.36*Math.min(1, pending/7) + 0.24*Math.min(1, occ*1.6));
+}
+function audioFrame(dt){
+  AU.setTension(computeTension());
+  AU.frame(dt);
+  AU.checkIncoming(trains, gameTime, speed);
+}
+function initAudioUI(){
+  const mb = document.getElementById('muteBtn');
+  if(!mb) return;
+  const bv = document.getElementById('bgmVol');
+  const sv = document.getElementById('sfxVol');
+  function sync(){
+    mb.textContent = AU.isMuted() ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+    mb.classList.toggle('off', AU.isMuted());
+  }
+  if(bv){ bv.value = Math.round(AU.getBgm()*100); bv.addEventListener('input', function(){ AU.setBgm(bv.value/100); }); }
+  if(sv){ sv.value = Math.round(AU.getSfx()*100); sv.addEventListener('input', function(){ AU.setSfx(sv.value/100); }); }
+  mb.addEventListener('click', function(){ AU.setMuted(!AU.isMuted()); sync(); });
+  sync();
+  // 浏览器自动播放策略：AudioContext 必须在用户首次交互后才能启动
+  const h = function(){ AU.unlock(); window.removeEventListener('pointerdown', h); window.removeEventListener('keydown', h); };
+  window.addEventListener('pointerdown', h);
+  window.addEventListener('keydown', h);
+}
+
+
+/* ============ 时刻表数据（2026 Q2 运行图，crecc 站表去重） ============ */
+// time 用"自0点起的分钟数"，>=1440 表示次日
+function T(h, m){ return h*60 + m; }
+// 到达车（终到沙坪坝）
+const ARRIVE = [
+  {train:"G4149", from:"西安北",  at:T(7,24)},
+  {train:"G8713", from:"内江北",  at:T(7,42)},
+  {train:"G8515", from:"永川东",  at:T(7,52)},
+  {train:"G8605", from:"成都东",  at:T(9,42)},
+  {train:"G8643", from:"成都东",  at:T(9,53)},
+  {train:"G8609", from:"成都东",  at:T(10,27)},
+  {train:"G8525", from:"成都东",  at:T(11,29)},
+  {train:"G8611", from:"成都东",  at:T(11,42)},
+  {train:"G8615", from:"成都东",  at:T(13,11)},
+  {train:"G8617", from:"成都东",  at:T(13,23)},
+  {train:"G8661", from:"德阳",    at:T(13,28)},
+  {train:"G8619", from:"成都东",  at:T(14,1)},
+  {train:"G8645", from:"成都东",  at:T(14,7)},
+  {train:"G8573", from:"荣昌北",  at:T(14,47)},
+  {train:"G8665", from:"成都东",  at:T(16,43)},
+  {train:"G8673", from:"成都东",  at:T(17,0)},
+  {train:"G2241", from:"西安东",  at:T(17,13)},
+  {train:"G8627", from:"成都东",  at:T(17,19)},
+  {train:"G8553", from:"峨眉山",  at:T(19,23)},
+  {train:"G8683", from:"峨眉山",  at:T(19,30)},
+  {train:"G8577", from:"成都东",  at:T(19,36)},
+  {train:"G8631", from:"成都东",  at:T(19,59)},
+  {train:"G8663", from:"成都东",  at:T(20,46)},
+  {train:"G8633", from:"成都东",  at:T(21,12)},
+  {train:"G3288", from:"上海虹桥",at:T(21,34)},
+  {train:"G8575", from:"成都东",  at:T(22,7)},
+  {train:"G3440", from:"银川",    at:T(23,2)},
+  {train:"G8591", from:"成都东",  at:T(24,60)},   // 次日01:00
+  {train:"G8589", from:"成都东",  at:T(24,150)},  // 次日02:30
+];
+// 出发车（沙坪坝始发）
+const DEPART = [
+  {train:"G8606", to:"成都东",   dt:T(7,55)},
+  {train:"G8514", to:"永川东",   dt:T(8,16)},
+  {train:"G3287", to:"上海虹桥", dt:T(8,51)},
+  {train:"G8712", to:"内江北",   dt:T(8,59)},
+  {train:"G3439", to:"银川",     dt:T(9,36)},
+  {train:"G8612", to:"成都东",   dt:T(10,30)},
+  {train:"G8646", to:"成都东",   dt:T(10,49)},
+  {train:"G8620", to:"成都东",   dt:T(11,25)},
+  {train:"G8618", to:"成都东",   dt:T(12,5)},
+  {train:"G8526", to:"峨眉山",   dt:T(12,20)},
+  {train:"G8630", to:"成都东",   dt:T(13,46)},
+  {train:"G8662", to:"成都东",   dt:T(13,53)},
+  {train:"G8624", to:"成都东",   dt:T(14,22)},
+  {train:"G8626", to:"成都东",   dt:T(14,35)},
+  {train:"G8648", to:"成都东",   dt:T(14,45)},
+  {train:"G8574", to:"成都东",   dt:T(15,43)},
+  {train:"G8664", to:"成都东",   dt:T(17,2)},
+  {train:"G2242", to:"西安东",   dt:T(17,33)},
+  {train:"G8674", to:"成都东",   dt:T(17,43)},
+  {train:"G8632", to:"成都东",   dt:T(17,50)},
+  {train:"G8516", to:"成都东",   dt:T(19,43)},
+  {train:"G4150", to:"西安北",   dt:T(19,43)},
+  {train:"G8578", to:"荣昌北",   dt:T(19,56)},
+  {train:"G8640", to:"成都东",   dt:T(20,19)},
+  {train:"G8638", to:"成都东",   dt:T(21,37)},
+  {train:"G8590", to:"成都东",   dt:T(22,0)},
+  {train:"G8576", to:"成都东",   dt:T(22,43)},
+  {train:"G8588", to:"成都东",   dt:T(23,23)},
+];
+
+/* ============ 站场模型：尽头式 3台7线 ============ */
+// 成都方向在西侧（左侧），列车从西侧咽喉进出、右侧尽头折返
+const TRACKS = [
+  {id:1, platform:"1站台", type:"到发线", label:"1道"},
+  {id:2, platform:"2站台", type:"到发线", label:"2道"},
+  {id:3, platform:"3站台", type:"到发线", label:"3道"},
+  {id:4, platform:null,   type:"正线",   label:"4道(正线)"},
+  {id:5, platform:null,   type:"正线",   label:"5道(正线)"},
+  {id:6, platform:"4站台", type:"到发线", label:"6道"},
+  {id:7, platform:"5站台", type:"到发线", label:"7道"},
+];
+
+const SIM_START = T(6,0);
+const SIM_END   = T(24,180);   // 次日03:00
+const ARRIVE_LEAD = 10;   // 到达车提前出现（游戏分钟）
+const DEPART_LEAD = 20;   // 发车车提前调入（游戏分钟）——发车前20分钟已在股道
+const DWELL = 20;         // 停站时长（游戏分钟）——到站20分钟后离场
+
+/* ============ 列车分类与发车股道分配规则 ============ */
+// 标杆车（成渝直达，一站不停，历时约1h02-1h03m）
+const BENCHMARK = new Set(['G8606','G8612','G8618','G8620','G8624']);        // 发车方向
+const BENCHMARK_ARRIVE = new Set(['G8609','G8611','G8617','G8631']);        // 到达方向
+// 跨局车（出省到非成渝贵三地区）
+const CROSS_REGION = new Set(['G3287','G3439','G2242','G4150']);            // 发车方向
+const CROSS_REGION_ARRIVE = new Set(['G4149','G2241','G3288','G3440']);     // 到达方向
+// 站站乐 = 其余（成渝贵地区内、停中途站）
+
+function classify(train){
+  const bm = train.kind === 'depart' ? BENCHMARK : BENCHMARK_ARRIVE;
+  const cr = train.kind === 'depart' ? CROSS_REGION : CROSS_REGION_ARRIVE;
+  if(bm.has(train.train)) return '标杆';
+  if(cr.has(train.train)) return '跨局';
+  return '站站乐';
+}
+
+// 按类型选发车股道（返回股道 id 1-7，无空闲返回 -1）
+function pickTrackForDepart(train){
+  const type = classify(train);
+  const free = (id) => TRACKS[id-1].type==='到发线' && !trackOccupied[id-1];
+  let order;
+  if(type === '标杆')      order = [1, 2, 3, 6, 7];  // 标杆专属1道
+  else if(type === '跨局') order = [6, 7, 2, 3, 1];  // 跨局用67道
+  else                     order = [2, 3, 6, 7, 1];  // 站站乐23道→2367道→最后1道
+  for(const id of order){ if(free(id)) return id; }
+  return -1;
+}
+
+/* ============ 状态 ============ */
+let gameTime = SIM_START;          // 当前游戏时间（分钟）
+let speed = 1;                     // 0暂停
+let selectedArrive = null;         // 正在选股道的到达车
+const THROAT_CAPACITY = 2;         // 咽喉并行能力：同时最多2列车通过
+let throatQueue = [];              // 咽喉占用队列，每个元素=剩余占用时间（真实秒）
+let logLines = [];
+
+// 股道占用
+const trackOccupied = new Array(7).fill(null);   // 存列车对象
+
+// 列车对象池
+const trains = [];
+
+// 统计
+let ontimeCount = 0, delayCount = 0, doneCount = 0, totalDelay = 0;
+
+/* ============ 列车对象 ============ */
+// kind: 'arrive' | 'depart'
+// state: 'waiting'(待接车) | 'entering'(进站中) | 'stopped'(停靠) | 'ready'(待发) | 'leaving'(出站中) | 'done'
+function makeTrain(kind, data){
+  return {
+    kind, train: data.train,
+    from: data.from || "", to: data.to || "",
+    sched: kind==='arrive' ? data.at : data.dt,
+    state: kind==='arrive' ? 'waiting' : 'waiting',
+    track: -1,             // 停靠股道 id (1-7)
+    x: 0,                  // 屏幕x进度（0~1）
+    spawnAt: kind==='arrive' ? data.at - ARRIVE_LEAD : data.dt - DEPART_LEAD,
+    enterStart: 0, enterDur: 0,   // 进站动画
+    dwellEnd: 0,                  // 停站结束时间
+    late: 0,                      // 晚点分钟
+  };
+}
+
+/* ============ 初始化 ============ */
+function init(){
+  ARRIVE.forEach(d => trains.push(makeTrain('arrive', d)));
+  DEPART.forEach(d => trains.push(makeTrain('depart', d)));
+  trains.sort((a,b)=>a.spawnAt - b.spawnAt);
+}
+
+/* ============ 时刻表 ============ */
+let currentTab = 'arrive';   // 'arrive' | 'depart'
+
+// 判断某列车是否已处理完（从时刻表移除）
+function isSettled(t){
+  if(t.kind === 'arrive') return t.state !== 'waiting';        // 到达车：接车即处理完
+  return t.state === 'leaving' || t.state === 'done';          // 发车车：发车即处理完
+}
+
+function renderTimetable(){
+  const el = document.getElementById('timetable');
+  const isArr = currentTab === 'arrive';
+  const pending = trains.filter(t => t.kind === (isArr?'arrive':'depart') && !isSettled(t));
+  pending.sort((a,b)=>a.sched - b.sched);
+
+  // 更新 tab 剩余数
+  const remainA = trains.filter(t => t.kind==='arrive' && !isSettled(t)).length;
+  const remainD = trains.filter(t => t.kind==='depart' && !isSettled(t)).length;
+  document.getElementById('ttRemain').textContent = remainA + remainD;
+  document.getElementById('tabArriveN').textContent = remainA;
+  document.getElementById('tabDepartN').textContent = remainD;
+
+  if(pending.length === 0){
+    el.innerHTML = '<div class="tip">该方向已全部处理完毕</div>';
+    return;
+  }
+  el.innerHTML = pending.map(t => {
+    const tm = fmtTime(t.sched);
+    const late = gameTime > t.sched;
+    const type = classify(t);
+    const tagCls = type==='标杆' ? 'biao' : (type==='跨局' ? 'kua' : 'zhan');
+    const place = t.kind==='arrive' ? t.from : t.to;
+    return `<div class="tt-row${late?' late':''}">
+      <span class="tt-time">${tm.str}</span>
+      <span class="tt-train">${t.train}</span>
+      <span class="tt-place">${place}</span>
+      <span class="tt-tag ${tagCls}">${type}</span>
+      ${late ? '<span class="tt-late">晚点</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function switchTab(tab){
+  currentTab = tab;
+  document.getElementById('tabArrive').classList.toggle('active', tab==='arrive');
+  document.getElementById('tabDepart').classList.toggle('active', tab==='depart');
+  renderTimetable();
+}
+
+/* ============ 工具 ============ */
+function fmtTime(min){
+  let day = 1, m = min;
+  while(m >= 1440){ m -= 1440; day++; }
+  const h = String(Math.floor(m/60)).padStart(2,'0');
+  const mm = String(Math.floor(m%60)).padStart(2,'0');
+  return {day, h, mm, str: (day>1?"次日":"") + h + ":" + mm};
+}
+function log(msg, cls){
+  const t = fmtTime(gameTime);
+  logLines.push({txt:`[${t.str}] ${msg}`, cls});
+  if(logLines.length > 80) logLines.shift();
+}
+
+/* ============ 调度操作 ============ */
+function tryAccept(train){
+  if(selectedArrive === train){ selectedArrive = null; return; }
+  selectedArrive = train;
+  AU.play('select');
+  log(`选择接车 ${train.train}（${train.from}），请点站台股道`, 'info');
+}
+function tryAssignTrack(train, trackId){
+  const tr = TRACKS[trackId-1];
+  if(tr.type !== '到发线'){ log(`✖ ${train.train}：正线不办客`, 'bad'); AU.play('invalid'); return; }
+  if(trackOccupied[trackId-1]){ log(`✖ ${train.train}：${tr.label}已被占用`, 'bad'); AU.play('invalid'); return; }
+  if(throatQueue.length >= THROAT_CAPACITY){ log(`✖ ${train.train}：咽喉已满（${THROAT_CAPACITY}列并行中），请稍候`, 'bad'); AU.play('invalid'); return; }
+  // 正晚点判定（以接车排进路动作时刻为准，与进站动画时长无关）
+  if(gameTime > train.sched){
+    train.late = gameTime - train.sched;
+    delayCount++; totalDelay += train.late;
+    log(`⚠ ${train.train} 到达晚点 ${Math.round(train.late)} 分`, 'bad');
+  } else {
+    ontimeCount++;
+    log(`✓ ${train.train} 正点接入`, 'ok');
+  }
+  doneCount++;
+  // 开始进站
+  train.state = 'entering';
+  train.track = trackId;
+  trackOccupied[trackId-1] = train;
+  throatQueue.push(3.0);   // 咽喉占用3真实秒
+  train.enterStart = performance.now();
+  train.enterDur = 2800;  // 进站动画毫秒
+  train.dwellEnd = gameTime + DWELL;
+  selectedArrive = null;
+  AU.play('assign');
+  log(`→ ${train.train} 进 ${tr.label}（${tr.platform}）`, 'ok');
+}
+function tryDepart(train){
+  if(train.state !== 'ready') return;
+  if(throatQueue.length >= THROAT_CAPACITY){ log(`✖ ${train.train}：咽喉已满（${THROAT_CAPACITY}列并行中）`, 'bad'); AU.play('invalid'); return; }
+  // 判定是否晚点
+  if(gameTime > train.sched){
+    train.late = gameTime - train.sched;
+    delayCount++; totalDelay += train.late;
+    AU.play('late');
+    log(`⚠ ${train.train} 发车晚点 ${Math.round(train.late)} 分`, 'bad');
+  } else {
+    ontimeCount++;
+    AU.play('depart');
+    log(`← ${train.train} 发车 → ${train.to}`, 'ok');
+  }
+  train.state = 'leaving';
+  // 不立即释放股道，等出站动画完成再释放（否则动画期间会被别的车调入同股道）
+  throatQueue.push(3.0);
+  train.enterStart = performance.now();
+  train.enterDur = 2800;
+  doneCount++;
+}
+/* ============ 主循环 ============ */
+let lastTs = performance.now();
+let endNotified = false;
+function tick(ts){
+  const dt = Math.min(0.1, (ts - lastTs)/1000);
+  lastTs = ts;
+  // 时间推进
+  if(speed > 0){
+    gameTime += dt * speed;   // 1现实秒 = speed 游戏分钟
+    if(gameTime >= SIM_END){
+      gameTime = SIM_END; speed = 0;
+      if(!endNotified){
+        endNotified = true;
+        AU.play('finish');
+        log('—— 运行图执行完毕（次日03:00），共57趟车次 ——', 'info');
+        document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>x.classList.remove('active'));
+      }
+    }
+  }
+  // 咽喉占用计时（队列逐项递减，到期释放）
+  if(throatQueue.length){
+    throatQueue = throatQueue.map(t => t - dt).filter(t => t > 0);
+  }
+  // 触发列车状态
+  updateTrains(dt);
+  audioFrame(dt);
+  render();
+  requestAnimationFrame(tick);
+}
+
+function updateTrains(dt){
+  for(const t of trains){
+    if(t.state === 'waiting'){
+      if(gameTime >= t.spawnAt){
+        if(t.kind === 'arrive'){
+          // 等待玩家接车
+        } else {
+          // 发车车自动调入：按类型（标杆/跨局/站站乐）分配股道
+          const id = pickTrackForDepart(t);
+          if(id > 0){
+            t.state = 'ready'; t.track = id; trackOccupied[id-1] = t;
+            const type = classify(t);
+            log(`🚦 ${t.train}（${type}）已调入 ${TRACKS[id-1].label}，等待发车信号`, 'info');
+          } else {
+            log(`⚠ ${t.train} 无空闲股道，暂缓调入`, 'bad');
+          }
+        }
+      }
+    } else if(t.state === 'entering'){
+      const p = (performance.now() - t.enterStart) / t.enterDur;
+      t.x = Math.min(1, p);
+      if(p >= 1){
+        t.state = 'stopped'; t.x = 1; AU.play('arrive');
+      }
+    } else if(t.state === 'stopped'){
+      if(t.kind === 'arrive' && gameTime >= t.dwellEnd){
+        // 到达车停站结束，离场（折返入库）
+        trackOccupied[t.track-1] = null;
+        t.state = 'done';
+        log(`${t.train} 停站完毕离场`, '');
+      }
+    } else if(t.state === 'ready'){
+      // 发车车等待玩家放行；若晚点提示
+    } else if(t.state === 'leaving'){
+      const p = (performance.now() - t.enterStart) / t.enterDur;
+      t.x = 1 - Math.min(1, p);
+      if(p >= 1){
+        t.state = 'done'; t.x = 0;
+        trackOccupied[t.track-1] = null;   // 出站动画完成才释放股道
+      }
+    }
+  }
+  // 待接车若错过时刻，标记晚点警告（不自动接，保持手动）
+}
+
+/* ============ 渲染 ============ */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0;
+
+function resize(){
+  const r = cv.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  W = r.width; H = r.height;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', resize);
+
+// 布局参数（随画布缩放）
+function layout(){
+  const marginL = 60, marginR = 40, marginT = 56, marginB = 40;
+  const throatW = Math.min(180, W*0.22);
+  const trackX0 = marginL + throatW;         // 股道起点（咽喉右端）
+  const trackX1 = W - marginR;               // 股道尽头
+  const top = marginT, bottom = H - marginB;
+  const n = TRACKS.length;
+  const gap = (bottom - top) / (n + 0.5);
+  const ys = [];
+  for(let i=0;i<n;i++){ ys.push(top + gap*(i+0.75)); }
+  return {throatX0:marginL, throatX1:trackX0, trackX0, trackX1, ys, gap, top, bottom};
+}
+
+function render(){
+  ctx.clearRect(0,0,W,H);
+  const L = layout();
+  drawBackground(L);
+  drawThroat(L);
+  drawTracks(L);
+  drawTrains(L);
+  drawUI(L);
+}
+
+function drawBackground(L){
+  ctx.fillStyle = '#0a0e14'; ctx.fillRect(0,0,W,H);
+  // 标题区
+  ctx.fillStyle = '#8b98a9'; ctx.font = '13px "Microsoft YaHei"';
+  ctx.fillText('← 成都方向（上行到达 / 下行出发）', L.throatX0+10, 20);
+  ctx.fillStyle = '#556070'; ctx.font = '12px "Microsoft YaHei"';
+  ctx.fillText('尽头式站场 · 列车右侧折返', L.trackX0, H-12);
+}
+
+function drawThroat(L){
+  const {throatX0, throatX1, ys} = L;
+  // 咽喉区背景
+  ctx.fillStyle = '#101722'; ctx.fillRect(throatX0, 30, throatX1-throatX0, H-60);
+  // 双线引入
+  const yUp = ys[0]-20, yDn = ys[6]+20;
+  ctx.strokeStyle = '#3a4a5c'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(throatX0-10, yUp); ctx.lineTo(throatX1, yUp); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(throatX0-10, yDn); ctx.lineTo(throatX1, yDn); ctx.stroke();
+  // 道岔扇形示意：从两条正线发散到7股道
+  ctx.strokeStyle = '#2d3a4a'; ctx.lineWidth = 1.5;
+  for(let i=0;i<TRACKS.length;i++){
+    ctx.beginPath();
+    ctx.moveTo(throatX0 + (throatX1-throatX0)*0.35, yUp);
+    ctx.lineTo(throatX1, ys[i]);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(throatX0 + (throatX1-throatX0)*0.35, yDn);
+    ctx.lineTo(throatX1, ys[i]);
+    ctx.stroke();
+  }
+  // 咽喉占用标记
+  if(throatQueue.length > 0){
+    ctx.fillStyle = '#ff6b6b'; ctx.font='bold 12px "Microsoft YaHei"';
+    ctx.fillText(`咽喉占用 ${throatQueue.length}/${THROAT_CAPACITY}`, throatX0+8, ys[3]-8);
+  }
+}
+
+function drawTracks(L){
+  const {trackX0, trackX1, ys} = L;
+  for(let i=0;i<TRACKS.length;i++){
+    const tr = TRACKS[i], y = ys[i];
+    // 股道线
+    const occupied = trackOccupied[i];
+    // 选中接车时：空闲到发线高亮绿色
+    const highlight = selectedArrive && !occupied && tr.type==='到发线';
+    // 股道颜色：被占时跟随占用列车的类型
+    let trackColor;
+    if(occupied){
+      const ty = classify(occupied);
+      trackColor = ty === '标杆' ? '#f0c030' : (ty === '跨局' ? '#4aa8ff' : '#3ecf8e');
+    } else if(highlight){
+      trackColor = '#3ecf8e';
+    } else {
+      trackColor = tr.type==='正线' ? '#4a5a6c' : '#6b7c90';
+    }
+    ctx.strokeStyle = trackColor;
+    ctx.lineWidth = (occupied||highlight) ? 4 : 2.5;
+    ctx.beginPath(); ctx.moveTo(trackX0, y); ctx.lineTo(trackX1, y); ctx.stroke();
+    // 高亮时在股道下方画提示条
+    if(highlight){
+      ctx.fillStyle = 'rgba(62,207,142,0.15)';
+      ctx.fillRect(trackX0, y-14, trackX1-trackX0, 28);
+    }
+    // 尽头车挡
+    ctx.fillStyle = '#8b98a9';
+    ctx.fillRect(trackX1-3, y-7, 6, 14);
+    // 股道名
+    ctx.fillStyle = highlight ? '#3ecf8e' : (tr.type==='正线' ? '#5a6a7c' : '#c5d0dc');
+    ctx.font = highlight ? 'bold 12px "Microsoft YaHei"' : '11px "Microsoft YaHei"';
+    ctx.textAlign = 'left';
+    ctx.fillText(tr.label, trackX0-42, y+4);
+  }
+  // 站台
+  const P = L;
+  // 侧式站台1（1道上方）
+  drawPlatform(P, 0, '1站台（侧式）', ys[0]-P.gap*0.55, ys[0]-P.gap*0.15, '侧式');
+  // 岛式站台A（2/3道之间）
+  drawPlatform(P, 1, '2/3站台', ys[1]+P.gap*0.15, ys[2]-P.gap*0.15, '岛式');
+  // 岛式站台B（6/7道之间）
+  drawPlatform(P, 2, '4/5站台', ys[5]+P.gap*0.15, ys[6]-P.gap*0.15, '岛式');
+}
+
+function drawPlatform(P, idx, name, y0, y1, type){
+  const x0 = P.trackX0 + 6, x1 = P.trackX1 - 6;
+  const grad = ctx.createLinearGradient(0,y0,0,y1);
+  grad.addColorStop(0,'#263142'); grad.addColorStop(1,'#1c2532');
+  ctx.fillStyle = grad;
+  ctx.fillRect(x0, y0, x1-x0, y1-y0);
+  ctx.strokeStyle = '#3a4a5c'; ctx.lineWidth=1;
+  ctx.strokeRect(x0, y0, x1-x0, y1-y0);
+  // 站台名
+  ctx.fillStyle = '#7c8a99'; ctx.font='11px "Microsoft YaHei"';
+  ctx.textAlign='center';
+  ctx.fillText(name, (x0+x1)/2, (y0+y1)/2+4);
+  // 安全线
+  ctx.strokeStyle = '#f0a030'; ctx.setLineDash([6,6]);
+  ctx.beginPath(); ctx.moveTo(x0, y0+4); ctx.lineTo(x1, y0+4); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(x0, y1-4); ctx.lineTo(x1, y1-4); ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawTrains(L){
+  const {trackX0, trackX1, ys, throatX0} = L;
+  const len = 46, h = 14;
+  for(const t of trains){
+    if(t.state==='done' || t.state==='waiting') continue;
+    let x, y;
+    if(t.state==='entering'){
+      // 从咽喉进站
+      y = ys[t.track-1];
+      x = throatX0 + (trackX1 - throatX0 - len) * t.x;
+    } else if(t.state==='leaving'){
+      y = ys[t.track-1];
+      x = throatX0 + (trackX1 - throatX0 - len) * t.x;
+    } else {
+      // stopped / ready
+      y = ys[t.track-1];
+      x = trackX1 - len - 10;
+    }
+    drawTrainShape(x, y, len, h, t);
+  }
+  // 待接车：到达车（画在咽喉外等待）
+  const waitingArrives = trains.filter(t=>t.state==='waiting' && t.kind==='arrive' && gameTime>=t.spawnAt);
+  waitingArrives.forEach((t, idx)=>{
+    const wy = L.top + 8 + (idx % 6) * 26;
+    drawTrainShape(throatX0-8-len, wy, len, h, t, true);
+  });
+  // 待调入：发车车（无空闲股道，画在咽喉下方等待）
+  const waitingDeparts = trains.filter(t=>t.state==='waiting' && t.kind==='depart' && gameTime>=t.spawnAt);
+  waitingDeparts.forEach((t, idx)=>{
+    const wy = L.bottom - 30 - (idx % 6) * 26;
+    drawTrainShape(throatX0-8-len, wy, len, h, t, true);
+    const tc = classify(t) === '标杆' ? '#f0c030' : (classify(t) === '跨局' ? '#4aa8ff' : '#3ecf8e');
+    ctx.fillStyle = tc; ctx.font='11px "Microsoft YaHei"';
+    ctx.textAlign='left';
+    ctx.fillText(t.train + ' 待调入', throatX0-8, wy+h/2+4);
+  });
+}
+
+function drawTrainShape(x, y, len, h, t, waiting){
+  // 车身（按类型着色：标杆黄、跨局蓝、站站乐绿）
+  const isArrive = t.kind === 'arrive';
+  const type = classify(t);
+  const col = type === '标杆' ? '#f0c030' : (type === '跨局' ? '#4aa8ff' : '#3ecf8e');
+  ctx.save();
+  if(waiting){
+    const blink = Math.floor(performance.now()/400)%2===0;
+    ctx.globalAlpha = blink ? 1 : 0.55;
+  }
+  // 车头（尖头）
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  if(isArrive){
+    // 到达车头朝右
+    ctx.moveTo(x+len, y+h/2);
+    ctx.lineTo(x+len-10, y); ctx.lineTo(x, y); ctx.lineTo(x, y+h); ctx.lineTo(x+len-10, y+h);
+  } else {
+    // 发车车头朝左
+    ctx.moveTo(x, y+h/2);
+    ctx.lineTo(x+10, y); ctx.lineTo(x+len, y); ctx.lineTo(x+len, y+h); ctx.lineTo(x+10, y+h);
+  }
+  ctx.closePath(); ctx.fill();
+  // 车顶亮条
+  ctx.fillStyle = '#ffffff'; ctx.globalAlpha *= 0.9;
+  ctx.fillRect(x+6, y+2, len-14, 3);
+  ctx.globalAlpha = waiting ? (Math.floor(performance.now()/400)%2===0?1:0.55) : 1;
+  // 车次号
+  ctx.fillStyle = '#fff'; ctx.font='bold 10px Consolas';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(t.train, x+len/2, y+h/2+0.5);
+  ctx.restore();
+  // 待接车车次标签
+  if(waiting){
+    ctx.fillStyle = col; ctx.font='11px "Microsoft YaHei"';
+    ctx.textAlign='left';
+    ctx.fillText(t.train + ' ' + t.from, x+len+4, y+h/2+4);
+  }
+}
+
+function drawUI(L){
+  // 选中接车提示
+  if(selectedArrive){
+    ctx.fillStyle = '#f0a030'; ctx.font='bold 14px "Microsoft YaHei"';
+    ctx.textAlign='left';
+    ctx.fillText(`▶ 正在为 ${selectedArrive.train} 排进路：点击绿色股道接车（再点一次列车取消）`, 20, 40);
+  }
+  // 图例（按类型）
+  const lx = W - 210, ly = 16;
+  ctx.font='11px "Microsoft YaHei"';
+  ctx.textAlign='left';
+  ctx.fillStyle = '#f0c030'; ctx.fillRect(lx, ly, 12, 12); ctx.fillStyle='#c5d0dc';
+  ctx.fillText('标杆', lx+16, ly+10);
+  ctx.fillStyle = '#4aa8ff'; ctx.fillRect(lx+52, ly, 12, 12); ctx.fillStyle='#c5d0dc';
+  ctx.fillText('跨局', lx+68, ly+10);
+  ctx.fillStyle = '#3ecf8e'; ctx.fillRect(lx+104, ly, 12, 12); ctx.fillStyle='#c5d0dc';
+  ctx.fillText('站站乐', lx+120, ly+10);
+}
+
+/* ============ 侧栏/顶栏更新 ============ */
+function updateSidebar(){
+  const arr = trains.filter(t=>t.state==='waiting' && t.kind==='arrive' && gameTime>=t.spawnAt);
+  const dep = trains.filter(t=>t.state==='ready' || (t.state==='waiting' && t.kind==='depart' && gameTime>=t.spawnAt));
+  document.getElementById('arriveCount').textContent = arr.length;
+  document.getElementById('departCount').textContent = dep.length;
+
+  const aq = document.getElementById('arriveQueue');
+  aq.innerHTML = arr.length ? '' : '<div class="tip">暂无待接车</div>';
+  arr.forEach(t=>{
+    const late = gameTime > t.sched;
+    const div = document.createElement('div');
+    div.className = 'item' + (late?' warn':'') + (selectedArrive===t?'':'');
+    div.innerHTML = `<span class="tn">${t.train}</span><span class="tm">${fmtTime(t.sched).str}</span><span class="dir">${t.from}${late?' ⚠晚点':''}</span>`;
+    div.onclick = ()=>tryAccept(t);
+    aq.appendChild(div);
+  });
+
+  const dq = document.getElementById('departQueue');
+  dq.innerHTML = dep.length ? '' : '<div class="tip">暂无待发车</div>';
+  dep.forEach(t=>{
+    const late = gameTime > t.sched;
+    const notReady = t.state === 'waiting';
+    const div = document.createElement('div');
+    div.className = 'item' + (late?' warn':'');
+    div.innerHTML = `<span class="tn">${t.train}</span><span class="tm">${fmtTime(t.sched).str}</span><span class="dir">${notReady?'⏳待调入':t.to}${late?' ⚠':''}</span>`;
+    div.onclick = ()=>tryDepart(t);
+    dq.appendChild(div);
+  });
+
+  document.getElementById('statsBox').innerHTML =
+    `已办车次 <b>${doneCount}</b> / 57<br>` +
+    `正点 <b style="color:#3ecf8e">${ontimeCount}</b>　晚点 <b style="color:#ff6b6b">${delayCount}</b><br>` +
+    `累计晚点 <b>${Math.round(totalDelay)}</b> 分钟`;
+
+  const lb = document.getElementById('logBox');
+  lb.innerHTML = logLines.map(l=>`<div class="${l.cls}">${l.txt}</div>`).join('');
+  lb.scrollTop = lb.scrollHeight;
+
+  renderTimetable();
+}
+
+function updateTopbar(){
+  const t = fmtTime(gameTime);
+  document.getElementById('clockText').textContent = t.str;
+  document.getElementById('clockDay').textContent = '第' + t.day + '日';
+  document.getElementById('ontime').textContent = ontimeCount;
+  document.getElementById('delay').textContent = delayCount;
+  document.getElementById('done').textContent = doneCount + '/57';
+}
+
+/* ============ 事件 ============ */
+// 加速按钮（只绑定带 data-s 的按钮，排除重置按钮）
+document.querySelectorAll('#speedGroup button[data-s]').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    speed = parseInt(b.dataset.s);
+    document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+  });
+});
+
+// 重新开始
+document.getElementById('resetBtn').addEventListener('click', resetGame);
+
+function resetGame(){
+  gameTime = SIM_START;
+  speed = 1;
+  selectedArrive = null;
+  throatQueue = [];
+  endNotified = false;
+  logLines = [];
+  for(let i=0;i<7;i++) trackOccupied[i] = null;
+  trains.length = 0;
+  ontimeCount = delayCount = doneCount = totalDelay = 0;
+  init();
+  // 恢复 1x 高亮
+  document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>{
+    x.classList.toggle('active', x.dataset.s === '1');
+  });
+  log('调度台已重新开始，模拟时间 06:00', 'info');
+  updateSidebar();
+  updateTopbar();
+}
+
+// 命中检测：返回 {type:'accept'|'depart'|'track', ...}
+function hitTest(mx, my){
+  const L = layout();
+  const len = 46, h = 14;
+  // 1. 咽喉外待接车（等待区，从上往下排队）
+  const wArr = trains.filter(t=>t.state==='waiting' && t.kind==='arrive' && gameTime>=t.spawnAt);
+  for(let idx=0; idx<wArr.length; idx++){
+    const t = wArr[idx];
+    const wy = L.top + 8 + (idx%6)*26;
+    const x0 = L.throatX0-8-len, x1 = L.throatX0-8;
+    if(mx >= x0 && mx <= x1+50 && my >= wy-3 && my <= wy+h+3){
+      return {type:'accept', train:t};
+    }
+  }
+  // 2. 股道上的待发车（ready，右侧尽头停靠）
+  for(const t of trains){
+    if(t.state!=='ready') continue;
+    const y = L.ys[t.track-1];
+    const x0 = L.trackX1 - len - 10, x1 = L.trackX1 - 10;
+    if(mx >= x0-8 && mx <= x1+8 && my >= y-12 && my <= y+12){
+      return {type:'depart', train:t};
+    }
+  }
+  // 3. 股道排进路（选中接车后，就近命中空闲到发线）
+  if(selectedArrive){
+    let best = -1, bestD = Infinity;
+    for(let i=0;i<TRACKS.length;i++){
+      if(TRACKS[i].type !== '到发线') continue;
+      const d = Math.abs(my - L.ys[i]);
+      if(d < bestD){ bestD = d; best = i; }
+    }
+    if(bestD < L.gap*0.6){
+      return {type:'track', trackId: best+1};
+    }
+  }
+  return null;
+}
+
+// 点击画布
+cv.addEventListener('click', (e)=>{
+  const rect = cv.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const hit = hitTest(mx, my);
+  if(!hit) return;
+  if(hit.type === 'accept'){ tryAccept(hit.train); }
+  else if(hit.type === 'depart'){ tryDepart(hit.train); }
+  else if(hit.type === 'track'){ tryAssignTrack(selectedArrive, hit.trackId); }
+});
+
+// 悬停光标反馈
+cv.addEventListener('mousemove', (e)=>{
+  const rect = cv.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const hit = hitTest(mx, my);
+  cv.style.cursor = hit ? 'pointer' : 'default';
+});
+
+/* ============ 启动 ============ */
+init();
+renderTimetable();
+resize();
+// tab 切换
+document.getElementById('tabArrive').addEventListener('click', ()=>switchTab('arrive'));
+document.getElementById('tabDepart').addEventListener('click', ()=>switchTab('depart'));
+log('调度台启动，模拟时间 06:00', 'info');
+log('提示：到达车会提前10分钟出现，点击列车选中、再点股道接车', 'info');
+requestAnimationFrame(tick);
+// 侧栏/顶栏低频刷新（避免每帧重建DOM影响点击）
+initAudioUI();
+setInterval(()=>{ updateSidebar(); updateTopbar(); }, 300);
+</script>
+</body>
+</html>

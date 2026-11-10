@@ -1,0 +1,1249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>重庆北站 · 调度模拟器（2026 Q2 运行图）</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161d27; --panel2: #1e2734; --border: #2d3a4a;
+    --text: #e6edf3; --dim: #8b98a9; --accent: #f0a030; --blue: #4aa8ff;
+    --green: #3ecf8e; --red: #ff6b6b; --purple: #b48cff;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:var(--bg); color:var(--text); font-family:"Segoe UI","Microsoft YaHei",sans-serif; height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+  .topbar {
+    display:flex; align-items:center; gap:16px; padding:10px 18px;
+    background:var(--panel); border-bottom:1px solid var(--border); flex-wrap:wrap;
+  }
+  .topbar h1 { font-size:17px; font-weight:700; white-space:nowrap; }
+  .topbar .sub { font-size:12px; color:var(--dim); }
+  .clock {
+    font-family:Consolas,monospace; font-size:22px; font-weight:700; color:var(--accent);
+    background:var(--panel2); padding:4px 14px; border-radius:8px; border:1px solid var(--border);
+  }
+  .clock .d { font-size:12px; color:var(--dim); font-weight:400; }
+  .speed-group { display:flex; gap:4px; }
+  .speed-group button {
+    background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    padding:6px 12px; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600;
+  }
+  .speed-group button:hover { border-color:var(--accent); }
+  .speed-group button.active { background:var(--accent); color:#1a1405; border-color:var(--accent); }
+  .speed-group #resetBtn { border-color:var(--red); color:var(--red); }
+  .speed-group #resetBtn:hover { background:var(--red); color:#1a0505; border-color:var(--red); }
+  .score { display:flex; gap:14px; margin-left:auto; font-size:13px; }
+  .score b { color:var(--accent); font-size:16px; }
+  .main { flex:1; display:flex; min-height:0; }
+  .stage { flex:1; position:relative; background:#0a0e14; min-width:0; overflow:auto; }
+  canvas { display:block; }
+  .sidebar {
+    width:340px; background:var(--panel); border-left:1px solid var(--border);
+    display:flex; flex-direction:column; overflow-y:auto; padding:12px; gap:12px; flex-shrink:0;
+  }
+  .panel { background:var(--panel2); border:1px solid var(--border); border-radius:8px; padding:10px; }
+  .panel h3 { font-size:13px; color:var(--blue); margin-bottom:8px; display:flex; align-items:center; gap:6px; }
+  .panel h3 .n { background:var(--blue); color:#06121f; border-radius:10px; padding:0 7px; font-size:11px; }
+  .queue { max-height:150px; overflow-y:auto; }
+  .queue .item {
+    display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:6px;
+    margin-bottom:4px; font-size:13px; background:var(--panel); cursor:pointer;
+    border:1px solid transparent;
+  }
+  .queue .item:hover { border-color:var(--accent); }
+  .queue .item .tn { font-weight:700; color:var(--text); }
+  .queue .item .tm { color:var(--dim); font-family:Consolas,monospace; }
+  .queue .item .dir { margin-left:auto; color:var(--dim); font-size:12px; }
+  .queue .item.warn { border-color:var(--red); }
+  .tip { font-size:12px; color:var(--dim); line-height:1.8; }
+  .tip b { color:var(--accent); }
+  .stats { font-size:12px; color:var(--dim); line-height:1.9; }
+  .stats b { color:var(--text); }
+  .log { font-size:11px; color:var(--dim); max-height:110px; overflow-y:auto; line-height:1.6; font-family:Consolas,monospace; }
+  .log .ok { color:var(--green); } .log .bad { color:var(--red); } .log .info { color:var(--blue); }
+  .legend-row { display:flex; gap:8px; margin-bottom:6px; flex-wrap:wrap; }
+  .lg { font-size:11px; padding:1px 8px; border-radius:3px; }
+  .lg-biao { background:#3a2b12; color:#f0a030; }
+  .lg-kua { background:#12283a; color:#4aa8ff; }
+  .lg-zhan { background:#122a1e; color:#3ecf8e; }
+  .lg-late { background:#3a1212; color:#ff6b6b; }
+  .lg-pass { background:#2a2240; color:#b48cff; }
+  .tab-row { display:flex; gap:6px; margin-bottom:8px; }
+  .tab-btn {
+    flex:1; background:var(--panel2); color:var(--dim); border:1px solid var(--border);
+    padding:5px 8px; border-radius:6px; cursor:pointer; font-size:13px; font-weight:600;
+  }
+  .tab-btn:hover { border-color:var(--accent); }
+  .tab-btn.active { background:var(--accent); color:#1a1405; border-color:var(--accent); }
+  .tab-btn .tb-n { font-size:11px; opacity:0.8; }
+  .timetable { max-height:300px; overflow-y:auto; font-size:12px; }
+  .tt-row { display:flex; align-items:center; gap:5px; padding:3px 4px; border-bottom:1px solid #1a2230; }
+  .tt-row.late { background:#2a1414; }
+  .tt-row .tt-time { font-family:Consolas,monospace; color:var(--dim); width:50px; flex-shrink:0; }
+  .tt-row.late .tt-time { color:#ff6b6b; }
+  .tt-row .tt-train { font-weight:700; color:var(--text); width:62px; flex-shrink:0; }
+  .tt-row .tt-place { color:var(--dim); width:62px; flex-shrink:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tt-row .tt-tag { font-size:10px; padding:0 5px; border-radius:3px; flex-shrink:0; }
+  .tt-tag.biao { background:#3a2b12; color:#f0a030; }
+  .tt-tag.kua { background:#12283a; color:#4aa8ff; }
+  .tt-tag.zhan { background:#122a1e; color:#3ecf8e; }
+  .tt-tag.pass { background:#2a2240; color:#b48cff; }
+  .tt-row .tt-sp { font-size:10px; padding:0 4px; border-radius:3px; flex-shrink:0; background:#16202c; color:#8b98a9; }
+  .tt-row .tt-cr { font-size:10px; padding:0 4px; border-radius:3px; flex-shrink:0; }
+  .tt-cr.yes { background:#2a2240; color:#b48cff; }
+  .tt-cr.no  { background:#16202c; color:#6b7c90; }
+  .tt-late { font-size:10px; color:#ff6b6b; font-weight:700; flex-shrink:0; margin-left:auto; }
+  .hintbar {
+    padding:8px 18px; background:var(--panel); border-top:1px solid var(--border);
+    font-size:12px; color:var(--dim); display:flex; gap:16px; flex-wrap:wrap;
+  }
+  .hintbar b { color:var(--accent); }
+
+  /* ---- 音频控制条（右上角） ---- */
+  .audio-box {
+    display:flex; align-items:center; gap:9px; flex-shrink:0;
+    padding:5px 11px; background:var(--panel2); border:1px solid var(--border); border-radius:8px;
+  }
+  .audio-box button {
+    font-size:15px; line-height:1; padding:4px 7px; cursor:pointer;
+    background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:6px;
+  }
+  .audio-box button:hover { border-color:var(--accent); }
+  .audio-box button.off { opacity:.42; }
+  .audio-box .vol { display:flex; align-items:center; gap:4px; font-size:11px; color:var(--dim); }
+  .audio-box input[type=range] { width:58px; accent-color:var(--accent); cursor:pointer; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div>
+    <h1>重庆北站 · 调度模拟器</h1>
+    <div class="sub">通过式特大型站 · 14台29线（渝利场1-12 / 渝万场13-21 / 渝怀场22-29） · 2026 Q2 运行图</div>
+  </div>
+  <div class="clock"><span id="clockText">00:00</span> <span class="d" id="clockDay">第1日</span></div>
+  <div class="speed-group" id="speedGroup">
+    <button data-s="0">⏸</button>
+    <button data-s="1" class="active">1x</button>
+    <button data-s="2">2x</button>
+    <button data-s="4">4x</button>
+    <button data-s="8">8x</button>
+    <button id="resetBtn" title="清空当前进度，回到 00:00 重开">🔄 重新开始</button>
+  </div>
+  <div class="score">
+    <span>正点 <b id="ontime">0</b></span>
+    <span>晚点 <b id="delay">0</b></span>
+    <span>车次 <b id="done">0/0</b></span>
+  </div>
+  <div class="audio-box" title="程序化实时合成音频（无音频文件）">
+    <button id="muteBtn" title="静音 / 取消静音">🔊</button>
+    <div class="vol"><span>♫</span><input type="range" id="bgmVol" min="0" max="100" value="45" title="背景音乐音量"></div>
+    <div class="vol"><span>◈</span><input type="range" id="sfxVol" min="0" max="100" value="70" title="音效音量"></div>
+  </div>
+</div>
+
+<div class="main">
+  <div class="stage"><canvas id="cv"></canvas></div>
+  <div class="sidebar">
+    <div class="panel">
+      <h3>🚂 待接车（请排进路）<span class="n" id="arriveCount">0</span></h3>
+      <div class="queue" id="arriveQueue"></div>
+    </div>
+    <div class="panel">
+      <h3>🚦 待发车（请放信号）<span class="n" id="departCount">0</span></h3>
+      <div class="queue" id="departQueue"></div>
+    </div>
+    <div class="panel">
+      <h3>🚄 列车时刻表 <span class="n" id="ttRemain">0</span></h3>
+      <div class="tab-row">
+        <button class="tab-btn active" id="tabArrive">到达 <span class="tb-n" id="tabArriveN">0</span></button>
+        <button class="tab-btn" id="tabDepart">发车 <span class="tb-n" id="tabDepartN">0</span></button>
+      </div>
+      <div class="legend-row">
+        <span class="lg lg-biao">标杆</span>
+        <span class="lg lg-kua">跨局</span>
+        <span class="lg lg-zhan">站站乐</span>
+        <span class="lg lg-pass">通过</span>
+        <span class="lg lg-late">晚点</span>
+      </div>
+      <div class="timetable" id="timetable"></div>
+    </div>
+    <div class="panel">
+      <h3>📊 运行统计</h3>
+      <div class="stats" id="statsBox"></div>
+    </div>
+    <div class="panel">
+      <h3>🗒 运行日志</h3>
+      <div class="log" id="logBox"></div>
+    </div>
+  </div>
+</div>
+
+<div class="hintbar">
+  <span><b>接车</b>：点左侧待接车 → 点空闲到发线股道</span>
+  <span><b>发车</b>：点股道上列车 → 放行</span>
+  <span><b>正线(6/7·17/18·22/26)不办客</b></span>
+  <span><b>左咽喉</b>西/北向 · <b>右咽喉</b>东/南向</span>
+</div>
+
+<script>
+"use strict";
+const AUDIO_MIN_PER_SEC = 6;   // 1现实秒对应的游戏分钟数（与 tick 中时间推进倍率一致）
+
+/* ==========================================================================
+   音频引擎 · Web Audio 程序化实时合成
+   —— 无音频文件、无外链、无版权；全部由 OscillatorNode + 代码生成混响 IR 合成。
+   BGM：五声音阶生成式氛围乐（风格致敬 Mini Metro），音符密度与亮度随繁忙度实时变化。
+   SFX：克制路线，低音量、软衰减、混响托底，融进背景而非打断。
+   ========================================================================== */
+const AU = (function(){
+  let ctx = null, master = null, comp = null, bgmBus = null, sfxBus = null, verb = null, verbSend = null;
+  let running = false, bgmTimer = null;
+  let padOscs = null, padGain = null, padFilter = null;
+  let tension = 0, tensionTarget = 0;
+  let lastWarnAt = 0;
+  let muted = false, bgmVol = 0.45, sfxVol = 0.70;
+  const LS = 'station_sim_audio_v1';
+
+  try{
+    const s = JSON.parse(localStorage.getItem(LS) || '{}');
+    if(typeof s.muted === 'boolean') muted = s.muted;
+    if(typeof s.bgmVol === 'number') bgmVol = Math.max(0, Math.min(1, s.bgmVol));
+    if(typeof s.sfxVol === 'number') sfxVol = Math.max(0, Math.min(1, s.sfxVol));
+  }catch(e){}
+  function save(){ try{ localStorage.setItem(LS, JSON.stringify({muted:muted, bgmVol:bgmVol, sfxVol:sfxVol})); }catch(e){} }
+
+  // 代码生成混响脉冲响应（噪声指数衰减），无需任何音频文件
+  function makeIR(sec, decay){
+    const rate = ctx.sampleRate, len = Math.max(1, Math.floor(rate*sec));
+    const buf = ctx.createBuffer(2, len, rate);
+    for(let c=0;c<2;c++){
+      const d = buf.getChannelData(c);
+      for(let i=0;i<len;i++) d[i] = (Math.random()*2-1) * Math.pow(1 - i/len, decay);
+    }
+    return buf;
+  }
+  function noiseBuf(sec){
+    const len = Math.max(1, Math.floor(ctx.sampleRate*sec));
+    const b = ctx.createBuffer(1, len, ctx.sampleRate), d = b.getChannelData(0);
+    for(let i=0;i<len;i++) d[i] = Math.random()*2-1;
+    return b;
+  }
+
+  function ensure(){
+    if(ctx) return true;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if(!AC) return false;
+    try{ ctx = new AC(); }catch(e){ return false; }
+    master = ctx.createGain(); master.gain.value = muted ? 0 : 1; master.connect(ctx.destination);
+    comp = ctx.createDynamicsCompressor();
+    try{
+      comp.threshold.value = -16; comp.knee.value = 22; comp.ratio.value = 6;
+      comp.attack.value = 0.01; comp.release.value = 0.25;
+    }catch(e){}
+    comp.connect(master);
+    bgmBus = ctx.createGain(); bgmBus.gain.value = bgmVol; bgmBus.connect(comp);
+    sfxBus = ctx.createGain(); sfxBus.gain.value = sfxVol; sfxBus.connect(comp);
+    verb = ctx.createConvolver(); verb.buffer = makeIR(2.8, 2.6);
+    verbSend = ctx.createGain(); verbSend.gain.value = 0.55;
+    verbSend.connect(verb); verb.connect(comp);
+    return true;
+  }
+  function now(){ return ctx.currentTime; }
+
+  // 单音符：osc -> (可选滤波) -> ADSR gain -> bus + 混响送出；播完自动断连防节点泄漏
+  function tone(o){
+    if(!ctx) return;
+    const t0 = now() + (o.delay || 0);
+    const atk = o.atk == null ? 0.01 : o.atk;
+    const dur = o.dur == null ? 0.30 : o.dur;
+    const rel = o.rel == null ? 0.25 : o.rel;
+    const peak = o.gain == null ? 0.20 : o.gain;
+    const osc = ctx.createOscillator();
+    osc.type = o.type || 'sine';
+    osc.frequency.setValueAtTime(o.freq, t0);
+    if(o.glide) osc.frequency.exponentialRampToValueAtTime(Math.max(20, o.glide), t0 + atk + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, peak), t0 + atk);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + atk + dur + rel);
+    let tail = osc;
+    if(o.filter){
+      const f = ctx.createBiquadFilter();
+      f.type = o.filter; f.frequency.value = o.cutoff || 1200; f.Q.value = o.q || 0.7;
+      osc.connect(f); tail = f;
+    }
+    tail.connect(g);
+    g.connect(o.bus || sfxBus);
+    if(o.verbAmt !== 0){
+      const s = ctx.createGain(); s.gain.value = (o.verbAmt == null ? 0.30 : o.verbAmt);
+      g.connect(s); s.connect(verbSend);
+    }
+    osc.start(t0); osc.stop(t0 + atk + dur + rel + 0.06);
+    osc.onended = function(){ try{ osc.disconnect(); g.disconnect(); if(tail !== osc) tail.disconnect(); }catch(e){} };
+  }
+
+  function noise(dur, gain, cutoff, q){
+    if(!ctx) return;
+    const src = ctx.createBufferSource(); src.buffer = noiseBuf(dur + 0.08);
+    const f = ctx.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = cutoff; f.Q.value = q || 0.9;
+    const g = ctx.createGain(); const t0 = now();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, gain), t0 + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    src.connect(f); f.connect(g); g.connect(sfxBus);
+    const s = ctx.createGain(); s.gain.value = 0.22; g.connect(s); s.connect(verbSend);
+    src.start(t0); src.stop(t0 + dur + 0.05);
+    src.onended = function(){ try{ src.disconnect(); f.disconnect(); g.disconnect(); s.disconnect(); }catch(e){} };
+  }
+
+  /* ---------------- 音效定义（克制感：低音量、软起软收、混响托底） ---------------- */
+  const DEFS = {
+    // 选中列车：极短高亮"嗒"
+    select: function(){
+      tone({type:'triangle', freq:932.3, gain:0.055, atk:0.004, dur:0.045, rel:0.10, filter:'highpass', cutoff:420, verbAmt:0.12});
+    },
+    // 接车成功（分配股道）：中音上行两声
+    assign: function(){
+      tone({type:'triangle', freq:587.3, gain:0.070, atk:0.006, dur:0.085, rel:0.22, filter:'lowpass', cutoff:2600, verbAmt:0.28});
+      tone({type:'sine',     freq:880.0, gain:0.050, atk:0.006, dur:0.100, rel:0.36, delay:0.07, verbAmt:0.30});
+    },
+    // 进站停稳确认
+    arrive: function(){
+      tone({type:'sine', freq:523.3, gain:0.055, atk:0.012, dur:0.10, rel:0.48, filter:'lowpass', cutoff:1900, verbAmt:0.38});
+    },
+    // 发车：下行两声 + 一丝汽笛气声
+    depart: function(){
+      tone({type:'triangle', freq:784.0, gain:0.065, atk:0.008, dur:0.12, rel:0.30, filter:'lowpass', cutoff:2300, verbAmt:0.32});
+      tone({type:'sine',     freq:587.3, gain:0.055, atk:0.010, dur:0.14, rel:0.52, delay:0.12, verbAmt:0.44});
+      noise(0.18, 0.014, 1100, 0.7);
+    },
+    // 即将来车预警：柔和上行两声（A5 -> E6）
+    incoming: function(){
+      tone({type:'sine', freq:880.0,  gain:0.060, atk:0.020, dur:0.16, rel:0.50, verbAmt:0.45});
+      tone({type:'sine', freq:1318.5, gain:0.052, atk:0.020, dur:0.18, rel:0.62, delay:0.16, verbAmt:0.45});
+    },
+    // 非法操作：低沉闷响
+    invalid: function(){
+      tone({type:'square', freq:164.8, gain:0.040, atk:0.005, dur:0.10, rel:0.14, filter:'lowpass', cutoff:400, verbAmt:0.08});
+    },
+    // 晚点：小二度不和谐，提示但不刺耳
+    late: function(){
+      tone({type:'sawtooth', freq:311.1, gain:0.038, atk:0.010, dur:0.13, rel:0.24, filter:'lowpass', cutoff:850, verbAmt:0.18});
+      tone({type:'sawtooth', freq:329.6, gain:0.034, atk:0.010, dur:0.13, rel:0.24, filter:'lowpass', cutoff:850, verbAmt:0.18});
+    },
+    // 运行图执行完毕：上行琶音
+    finish: function(){
+      [0,4,7,12].forEach(function(s, i){
+        tone({type:'sine', freq:523.3*Math.pow(2, s/12), gain:0.060, atk:0.012, dur:0.20, rel:0.90, delay:i*0.11, verbAmt:0.60});
+      });
+    }
+  };
+
+  function play(name){
+    if(muted) return;
+    if(!ensure()) return;
+    if(ctx.state === 'suspended'){ try{ ctx.resume(); }catch(e){} }
+    const f = DEFS[name];
+    if(f){ try{ f(); }catch(e){} }
+  }
+
+  /* ---------------- BGM：五声音阶生成式氛围乐 ---------------- */
+  const PENTA = [0, 2, 4, 7, 9];               // C D E G A，随机游走也不刺耳
+  function sf(deg){
+    const oct = Math.floor(deg / 5), idx = ((deg % 5) + 5) % 5;
+    return 220 * Math.pow(2, (PENTA[idx] + 12*oct) / 12);
+  }
+  let melDeg = 8;
+  function step(){
+    if(!running || !ctx) return;
+    const tn = tension;
+    const gap = (2.5 - 1.7*tn) * 1000 + (Math.random()*300 - 150);   // 忙 -> 音符变密
+    if(Math.random() < 0.42 + 0.48*tn){                              // 旋律层
+      const mv = [-2,-1,-1,0,1,1,2][Math.floor(Math.random()*7)];
+      melDeg = Math.max(5, Math.min(17, melDeg + mv));
+      tone({type:'sine', freq:sf(melDeg), gain:0.045 + 0.030*tn, atk:0.30 + 0.20*(1-tn), dur:0.45,
+            rel:1.5 + 0.9*(1-tn), bus:bgmBus, filter:'lowpass', cutoff:700 + 2200*tn, verbAmt:0.60});
+    }
+    if(Math.random() < 0.14 + 0.44*tn){                              // 低频脉冲
+      tone({type:'triangle', freq:sf(0)*0.5, gain:0.070 + 0.045*tn, atk:0.02, dur:0.24, rel:0.85,
+            bus:bgmBus, filter:'lowpass', cutoff:380, verbAmt:0.22});
+    }
+    if(Math.random() < 0.16){                                        // 五度点缀（清冷感）
+      tone({type:'sine', freq:sf(melDeg + 3), gain:0.024, atk:0.45, dur:0.40, rel:2.1, bus:bgmBus, verbAmt:0.80});
+    }
+    bgmTimer = setTimeout(step, Math.max(220, gap));
+  }
+  function startPad(){                                               // 持续和弦垫 + 慢速LFO呼吸
+    if(padOscs || !ctx) return;
+    padGain = ctx.createGain(); padGain.gain.value = 0.0001;
+    padFilter = ctx.createBiquadFilter(); padFilter.type = 'lowpass';
+    padFilter.frequency.value = 520; padFilter.Q.value = 0.5;
+    padGain.connect(padFilter); padFilter.connect(bgmBus);
+    const vs = ctx.createGain(); vs.gain.value = 0.5; padFilter.connect(vs); vs.connect(verbSend);
+    padOscs = [];
+    [0, 7, 12, 19].forEach(function(semi, i){
+      const o = ctx.createOscillator();
+      o.type = i === 0 ? 'triangle' : 'sine';
+      o.frequency.value = 110 * Math.pow(2, semi/12);
+      o.detune.value = (i - 1.5) * 5;
+      const g = ctx.createGain(); g.gain.value = i === 0 ? 0.45 : 0.18;
+      o.connect(g); g.connect(padGain); o.start();
+      padOscs.push(o);
+    });
+    const lfo = ctx.createOscillator(); lfo.frequency.value = 0.055;
+    const lg = ctx.createGain(); lg.gain.value = 0.012;
+    lfo.connect(lg); lg.connect(padGain.gain); lfo.start();
+    padOscs.push(lfo);
+    padGain.gain.setTargetAtTime(0.055, ctx.currentTime, 3.0);
+  }
+  function startBgm(){ if(running || !ctx) return; running = true; startPad(); step(); }
+  function stopBgm(){ running = false; if(bgmTimer){ clearTimeout(bgmTimer); bgmTimer = null; } }
+
+  /* ---------------- 对外接口 ---------------- */
+  function unlock(){
+    if(!ensure()) return;
+    if(ctx.state === 'suspended'){ try{ ctx.resume(); }catch(e){} }
+    if(!muted) startBgm();
+  }
+  function setMuted(m){
+    muted = !!m; save();
+    if(ctx && master) master.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.08);
+    if(muted) stopBgm();
+    else if(ensure()){ if(ctx.state === 'suspended'){ try{ ctx.resume(); }catch(e){} } startBgm(); }
+    return muted;
+  }
+  function setBgm(v){ bgmVol = Math.max(0, Math.min(1, v)); save(); if(ctx && bgmBus) bgmBus.gain.setTargetAtTime(bgmVol, ctx.currentTime, 0.05); }
+  function setSfx(v){ sfxVol = Math.max(0, Math.min(1, v)); save(); if(ctx && sfxBus) sfxBus.gain.setTargetAtTime(sfxVol, ctx.currentTime, 0.05); }
+
+  function frame(dt){                                   // 每帧：平滑繁忙度，调节pad亮度
+    tension += (tensionTarget - tension) * Math.min(1, dt * 0.35);
+    if(ctx && padFilter){
+      try{ padFilter.frequency.setTargetAtTime(520 + 1500*tension, ctx.currentTime, 0.6); }catch(e){}
+    }
+  }
+  function setTension(v){ tensionTarget = Math.max(0, Math.min(1, v)); }
+
+  function checkIncoming(list, gameTime, speed){        // 来车预警：提前约3现实秒，同刻不叠音
+    if(!ctx || muted || speed <= 0) return;
+    const lead = Math.max(4, 3 * speed * AUDIO_MIN_PER_SEC);
+    for(let i=0;i<list.length;i++){
+      const t = list[i];
+      if(t.warned || t.state !== 'waiting' || t.spawnAt == null) continue;
+      if(t.spawnAt - gameTime <= lead && t.spawnAt >= gameTime){
+        t.warned = true;
+        const nowMs = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+        if(nowMs - lastWarnAt > 800){ lastWarnAt = nowMs; play('incoming'); }
+      }
+    }
+  }
+
+  return {
+    play: play, unlock: unlock, frame: frame, setTension: setTension, checkIncoming: checkIncoming,
+    setMuted: setMuted, setBgm: setBgm, setSfx: setSfx,
+    isMuted: function(){ return muted; },
+    ctxState: function(){ return ctx ? ctx.state : 'none'; },
+    getBgm: function(){ return bgmVol; }, getSfx: function(){ return sfxVol; },
+    tension: function(){ return tension; }
+  };
+})();
+
+// 繁忙度：咽喉占用 40% + 待处理积压 36% + 股道占用 24%
+function computeTension(){
+  let cap = 8;
+  try{ if(typeof THROAT_CAPACITY !== 'undefined') cap = THROAT_CAPACITY; }catch(e){}
+  let pending = 0;
+  for(let i=0;i<trains.length;i++) if(trains[i].state === 'waiting') pending++;
+  let occN = 0;
+  for(let i=0;i<trackOccupied.length;i++) if(trackOccupied[i]) occN++;
+  const throat = Math.min(1, throatQueue.length / Math.max(1, cap));
+  const occ = occN / Math.max(1, TRACKS.length);
+  return Math.min(1, 0.40*throat + 0.36*Math.min(1, pending/7) + 0.24*Math.min(1, occ*1.6));
+}
+function audioFrame(dt){
+  AU.setTension(computeTension());
+  AU.frame(dt);
+  AU.checkIncoming(trains, gameTime, speed);
+}
+function initAudioUI(){
+  const mb = document.getElementById('muteBtn');
+  if(!mb) return;
+  const bv = document.getElementById('bgmVol');
+  const sv = document.getElementById('sfxVol');
+  function sync(){
+    mb.textContent = AU.isMuted() ? '\uD83D\uDD07' : '\uD83D\uDD0A';
+    mb.classList.toggle('off', AU.isMuted());
+  }
+  if(bv){ bv.value = Math.round(AU.getBgm()*100); bv.addEventListener('input', function(){ AU.setBgm(bv.value/100); }); }
+  if(sv){ sv.value = Math.round(AU.getSfx()*100); sv.addEventListener('input', function(){ AU.setSfx(sv.value/100); }); }
+  mb.addEventListener('click', function(){ AU.setMuted(!AU.isMuted()); sync(); });
+  sync();
+  // 浏览器自动播放策略：AudioContext 必须在用户首次交互后才能启动
+  const h = function(){ AU.unlock(); window.removeEventListener('pointerdown', h); window.removeEventListener('keydown', h); };
+  window.addEventListener('pointerdown', h);
+  window.addEventListener('keydown', h);
+}
+
+
+/* ============ 时刻表数据（2026 Q2 运行图，真实车次+时间，网上核查） ============ */
+// 时间用"自0点起的分钟数"，>=1440 表示次日
+function T(h, m){ return h*60 + m; }
+// 字段：n车号 f始发站 t终到站 a到达时刻(分钟,null=始发) d出发时刻(分钟,null=终到)
+//       r区域(cy=成渝贵内 / kj=跨局出省) b标杆(1) s停靠(默认1) c跨场(通过车=1)
+const TRAINS_DATA = [
+  /* —— 重庆北 始发 → 成都/成渝（西向·左咽喉·成渝贵内） —— */
+  {n:'G8690', t:'成都东', d:T(5,53), r:'cy', b:1},
+  {n:'C77',   t:'成都东', d:T(6,18), r:'cy'},
+  {n:'G8642', t:'成都东', d:T(7,12), r:'cy'},
+  {n:'G8702', t:'成都东', d:T(8,20), r:'cy', b:1},
+  {n:'G8610', t:'成都东', d:T(9,32), r:'cy', b:1},
+  {n:'C783',  t:'成都东', d:T(9,50), r:'cy'},
+  {n:'G5787', t:'成都东', d:T(10,42), r:'cy'},
+  {n:'G5767', t:'成都东', d:T(14,13), r:'cy'},
+  {n:'G3462', f:'汉口', t:'成都东', a:T(14,7), d:T(14,37), r:'cy', c:1}, // 经停继续（汉口→重庆北→成都东）
+  {n:'G8686', t:'成都东', d:T(16,38), r:'cy'},
+  {n:'G8628', t:'成都东', d:T(16,38), r:'cy', b:1},
+  {n:'C3475', t:'成都东', d:T(17,33), r:'cy'},
+  {n:'G8622', t:'成都东', d:T(18,18), r:'cy', b:1},
+  {n:'G3357', t:'成都东', d:T(18,40), r:'cy'},
+  {n:'G8684', t:'成都东', d:T(18,46), r:'cy'},
+  {n:'G978',  t:'成都东', d:T(19,9), r:'cy', b:1},
+  {n:'G3428', t:'成都东', d:T(20,24), r:'cy', b:1},
+  {n:'G1477', t:'成都东', d:T(20,33), r:'cy', b:1},
+
+  /* —— 重庆北 始发 → 贵阳/渝贵（南向·右咽喉·成渝贵内） —— */
+  {n:'D1733', t:'贵阳北', d:T(7,7), r:'cy'},
+  {n:'G2865', t:'贵阳北', d:T(8,36), r:'cy'},
+  {n:'D1835', t:'贵阳东', d:T(8,53), r:'cy'},
+  {n:'C6437', t:'贵阳北', d:T(9,6), r:'cy'},
+  {n:'G1323', t:'贵阳北', d:T(20,8), r:'cy'},
+  {n:'G2679', t:'贵阳北', d:T(20,45), r:'cy'},
+
+  /* —— 重庆北 始发 → 郑州/郑渝（北向·左咽喉·跨局） —— */
+  {n:'G4264', t:'郑州东', d:T(0,4), r:'kj'},
+  {n:'G3228', t:'郑州东', d:T(6,35), r:'kj'},
+  {n:'G330',  t:'郑州东', d:T(7,21), r:'kj'},
+  {n:'G1534', t:'郑州东', d:T(7,38), r:'kj'},
+  {n:'G1150', t:'郑州东', d:T(8,15), r:'kj'},
+  {n:'G976',  t:'郑州东', d:T(8,57), r:'kj'},
+  {n:'G1478', t:'郑州东', d:T(9,27), r:'kj'},
+  {n:'G1324', t:'郑州东', d:T(10,10), r:'kj'},
+  {n:'G3488', t:'郑州东', d:T(10,25), r:'kj'},
+  {n:'G3404', t:'郑州东', d:T(10,35), r:'kj'},
+  {n:'G3408', t:'郑州东', d:T(16,6), r:'kj'},
+  {n:'G3410', t:'郑州东', d:T(17,21), r:'kj'},
+  {n:'G3478', t:'郑州东', d:T(17,51), r:'kj'},
+  {n:'G3458', t:'郑州东', d:T(17,57), r:'kj'},
+  {n:'G3460', t:'郑州东', d:T(18,21), r:'kj'},
+  {n:'G3468', t:'郑州东', d:T(18,36), r:'kj'},
+  {n:'G2434', t:'郑州东', d:T(19,3), r:'kj'},
+  {n:'G8680', t:'郑州东', d:T(19,10), r:'kj'},
+  {n:'G2250', t:'郑州东', d:T(19,28), r:'kj'},
+  {n:'G2866', t:'郑州东', d:T(21,23), r:'kj'},
+  {n:'D1838', t:'郑州东', d:T(22,4), r:'kj'},
+  {n:'K508',  t:'郑州',   d:T(20,14), r:'kj'},
+  {n:'K1064', t:'郑州',   d:T(23,2), r:'kj'},
+
+  /* —— 重庆北 始发 → 万州/渝万（北向·左咽喉·成渝贵内） —— */
+  {n:'S5502', t:'万州北', d:T(6,13), r:'cy'},
+  {n:'G3392', t:'万州北', d:T(6,5), r:'cy'},
+  {n:'S5506', t:'万州北', d:T(6,40), r:'cy'},
+  {n:'S5508', t:'万州北', d:T(6,55), r:'cy'},
+  {n:'G3452', t:'万州北', d:T(7,7), r:'cy'},
+  {n:'G8704', t:'万州北', d:T(8,21), r:'cy'},
+  {n:'S5504', t:'万州北', d:T(8,3), r:'cy'},
+  {n:'S5512', t:'万州北', d:T(8,37), r:'cy'},
+  {n:'S5452', t:'万州北', d:T(8,51), r:'cy'},
+  {n:'S5514', t:'万州北', d:T(9,15), r:'cy'},
+  {n:'G1324', t:'万州北', d:T(10,9), r:'cy'},
+  {n:'G3404', t:'万州北', d:T(10,35), r:'cy'},
+  {n:'G3422', t:'万州北', d:T(10,41), r:'cy'},
+  {n:'G1016', t:'万州北', d:T(11,10), r:'cy'},
+  {n:'G8688', t:'万州北', d:T(11,15), r:'cy'},
+  {n:'G2680', t:'万州北', d:T(11,38), r:'cy'},
+  {n:'G1198', t:'万州北', d:T(12,21), r:'cy'},
+  {n:'G8616', t:'万州北', d:T(12,41), r:'cy'},
+  {n:'G1710', t:'万州北', d:T(13,1), r:'cy'},
+  {n:'G3358', t:'万州北', d:T(13,12), r:'cy'},
+  {n:'G2428', t:'万州北', d:T(13,18), r:'cy'},
+  {n:'G3456', t:'万州北', d:T(13,24), r:'cy'},
+  {n:'G3406', t:'万州北', d:T(13,57), r:'cy'},
+  {n:'G2892', t:'万州北', d:T(14,13), r:'cy'},
+  {n:'G3570', t:'万州北', d:T(14,25), r:'cy'},
+  {n:'G974',  t:'万州北', d:T(14,38), r:'cy'},
+  {n:'G3476', t:'万州北', d:T(15,2), r:'cy'},
+  {n:'G3474', t:'万州北', d:T(15,38), r:'cy'},
+  {n:'G3726', t:'万州北', d:T(16,22), r:'cy'},
+  {n:'G3472', t:'万州北', d:T(16,49), r:'cy'},
+  {n:'G3426', t:'万州北', d:T(17,0), r:'cy'},
+  {n:'G3420', t:'万州北', d:T(17,26), r:'cy'},
+  {n:'G3450', t:'万州北', d:T(17,39), r:'cy'},
+  {n:'G5794', t:'万州北', d:T(20,20), r:'cy'},
+  {n:'S5550', t:'万州北', d:T(21,16), r:'cy'},
+
+  /* —— 重庆北 终到/到达（真实到达时刻） —— */
+  /* 成都→重庆北（西向·左咽喉） */
+  {n:'G8527', f:'成都东', a:T(16,6), r:'cy'},
+  {n:'G8531', f:'成都东', a:T(17,2), r:'cy'},
+  {n:'G8515', f:'成都东', a:T(17,59), r:'cy'},
+  {n:'G8525', f:'成都东', a:T(17,59), r:'cy'},
+  {n:'G8607', f:'成都东', a:T(21,22), r:'cy'},
+  {n:'C78',   f:'成都东', a:T(21,53), r:'cy'},
+  {n:'G8517', f:'成都东', a:T(21,17), r:'cy'},
+  {n:'G8535', f:'成都东', a:T(21,17), r:'cy'},
+  {n:'G8691', f:'成都东', a:T(22,49), r:'cy'},
+  {n:'G8583', f:'成都东', a:T(23,13), r:'cy'},
+  {n:'G8521', f:'成都东', a:T(15,15), r:'cy'},
+  {n:'G8523', f:'成都东', a:T(15,15), r:'cy'},
+  {n:'G8529', f:'成都东', a:T(19,3), r:'cy'},
+  {n:'G8537', f:'成都东', a:T(21,39), r:'cy'},
+  {n:'Z588',  f:'成都西', a:T(23,24), r:'cy'},
+  /* 汉口→重庆北（东向·右咽喉·跨局） */
+  {n:'G3451', f:'汉口', a:T(12,39), r:'kj'},
+  {n:'G3453', f:'汉口', a:T(12,59), r:'kj'},
+  {n:'G3471', f:'汉口', a:T(15,6), r:'kj'},
+  {n:'G3455', f:'汉口', a:T(17,26), r:'kj'},
+  {n:'G3457', f:'汉口', a:T(21,57), r:'kj'},
+  {n:'G4583', f:'汉口', a:T(22,32), r:'kj'},
+  {n:'G3459', f:'汉口', a:T(23,39), r:'kj'},
+  {n:'G4819', f:'汉口', a:T(27,16), r:'kj'}, // 次日03:16
+  /* 西安→重庆北（北向·左咽喉·跨局） */
+  {n:'G3763', f:'西安北', a:T(13,34), r:'kj'},
+  {n:'D1979', f:'西安北', a:T(17,20), r:'kj'},
+  {n:'D1711', f:'西安北', a:T(21,6), r:'kj'},
+  /* 万州→重庆北（北向·左咽喉·成渝贵内） */
+  {n:'S5455', f:'万州北', a:T(16,19), r:'cy'},
+  {n:'S5457', f:'万州北', a:T(19,57), r:'cy'},
+  {n:'S5471', f:'万州北', a:T(23,56), r:'cy'},
+
+  /* —— 通过车（不办客、正线跨站，跨场=是；数量较少，下列为示意真实车次） —— */
+  {n:'G8689', f:'重庆西', t:'成都东', a:T(9,34), d:T(9,36), r:'cy', s:0, c:1},
+  {n:'G3581', f:'重庆西', t:'贵阳北', a:T(11,13), d:T(11,15), r:'cy', s:0, c:1},
+  {n:'D207',  f:'重庆西', t:'贵阳北', a:T(19,14), d:T(19,16), r:'cy', s:0, c:1},
+  {n:'G3209', f:'重庆西', t:'贵阳北', a:T(19,34), d:T(19,36), r:'cy', s:0, c:1},
+  {n:'G2275', f:'重庆西', t:'贵阳东', a:T(9,43), d:T(9,45), r:'cy', s:0, c:1},
+  {n:'D947',  f:'重庆西', t:'贵阳东', a:T(20,59), d:T(21,1), r:'cy', s:0, c:1},
+];
+
+/* ============ 站场模型：通过式 14台29线 三场 ============ */
+// 真实股道编号：渝利场1-12、渝万场13-21、渝怀场22-29
+// 正线（不办客）：6/7(宁蓉)、17/18(郑渝)、22/26(渝怀)
+const TRACKS = [];
+(function buildTracks(){
+  // 渝利场 1-12
+  for(let i=1;i<=12;i++){
+    const isMain = (i===6||i===7);
+    TRACKS.push({id:i, yard:'渝利场', type:isMain?'正线':'到发线', label:i+'道', platform: (i<=5? i : (i>=8? i-2 : null))});
+  }
+  // 渝万场 13-21
+  for(let i=13;i<=21;i++){
+    const isMain = (i===17||i===18);
+    TRACKS.push({id:i, yard:'渝万场', type:isMain?'正线':'到发线', label:i+'道', platform:(i-12)});
+  }
+  // 渝怀场 22-29
+  for(let i=22;i<=29;i++){
+    const isMain = (i===22||i===26);
+    TRACKS.push({id:i, yard:'渝怀场', type:isMain?'正线':'到发线', label:i+'道', platform:(i-21)});
+  }
+})();
+
+const SIM_START = T(0,0);       // 00:00
+const SIM_END   = T(27,0);      // 次日03:00
+const ARRIVE_LEAD = 10;
+const DEPART_LEAD = 20;
+const DWELL = 20;               // 停站时长（游戏分钟）
+const THROAT_CAPACITY = 17;     // 咽喉并行能力（用户指定17-18），左右咽喉合计
+
+/* ============ 列车分类与方向 ============ */
+function classify(tr){
+  if(tr.b) return '标杆';
+  if(tr.r === 'kj') return '跨局';
+  return '站站乐';
+}
+// 方向：西/北向（成都/郑州/西安/万州…）从左咽喉进；东/南向（汉口/贵阳…）从右咽喉进
+function sideOf(city){
+  if(!city) return 'L';
+  if(/成都|德阳|绵阳|广元|南充|遂宁|达州|万州|郑州|西安|兰州|安康|襄阳|渭南/.test(city)) return 'L';
+  return 'R';
+}
+
+/* ============ 状态 ============ */
+let gameTime = SIM_START;
+let speed = 1;
+let selectedTrain = null;       // 正在选股道的列车
+let throatQueue = [];           // 咽喉占用队列（真实秒）
+let logLines = [];
+const trackOccupied = new Array(TRACKS.length).fill(null);
+const trains = [];
+let ontimeCount = 0, delayCount = 0, doneCount = 0, totalDelay = 0;
+const TOTAL = TRAINS_DATA.length;
+
+/* ============ 列车对象 ============ */
+// state: waiting(待接车/待上股道) → entering(进站) → stopped(停靠) → ready(待发) → leaving(出站) → done
+function makeTrain(d){
+  const stop = (d.s !== 0);
+  const enterThroat = d.f ? sideOf(d.f) : sideOf(d.t);     // 到达车从始发侧进；始发车从终到侧咽喉出
+  const exitThroat  = d.t ? sideOf(d.t) : enterThroat;     // 终到车原路返回
+  return {
+    no:d.n, from:d.f||'', to:d.t||'', at:d.a||null, dt:d.d||null,
+    region:d.r, b:!!d.b, stop, cross:!!d.c,
+    state:'waiting', track:-1, x:0,
+    spawnAt: (d.a!=null ? d.a : d.d) - (d.a!=null?ARRIVE_LEAD:DEPART_LEAD),
+    enterStart:0, enterDur:2600, dwellEnd:0,
+    enterThroat, exitThroat, lateArr:0, lateDep:0
+  };
+}
+
+function init(){
+  TRAINS_DATA.forEach(d => trains.push(makeTrain(d)));
+  trains.sort((a,b)=>a.spawnAt - b.spawnAt);
+}
+
+/* ============ 时刻表 ============ */
+let currentTab = 'arrive';
+function isSettled(t){ return t.state === 'done'; }
+function isLate(t, isArr){
+  const tm = isArr ? t.at : t.dt;
+  return tm!=null && gameTime > tm && !isSettled(t);
+}
+
+function renderTimetable(){
+  const el = document.getElementById('timetable');
+  const isArr = currentTab === 'arrive';
+  const pending = trains.filter(t => (isArr ? t.at!=null : t.dt!=null) && !isSettled(t));
+  pending.sort((a,b)=> (isArr?a.at:b.dt) - (isArr?b.at:b.dt));
+
+  const remainA = trains.filter(t => t.at!=null && !isSettled(t)).length;
+  const remainD = trains.filter(t => t.dt!=null && !isSettled(t)).length;
+  document.getElementById('ttRemain').textContent = remainA + remainD;
+  document.getElementById('tabArriveN').textContent = remainA;
+  document.getElementById('tabDepartN').textContent = remainD;
+
+  if(pending.length === 0){
+    el.innerHTML = '<div class="tip">该方向已全部处理完毕</div>';
+    return;
+  }
+  el.innerHTML = pending.map(t => {
+    const tm = isArr ? t.at : t.dt;
+    const late = isLate(t, isArr);
+    const type = classify(t);
+    const tagCls = type==='标杆' ? 'biao' : (type==='跨局' ? 'kua' : 'zhan');
+    const place = isArr ? t.from : t.to;
+    const sp = t.stop ? '停靠' : '通过';
+    const spCls = t.stop ? '' : 'pass';
+    const cr = t.cross ? '<span class="tt-cr yes">跨场</span>' : '<span class="tt-cr no">本场</span>';
+    return `<div class="tt-row${late?' late':''}">
+      <span class="tt-time">${fmtTime(tm).str}</span>
+      <span class="tt-train">${t.no}</span>
+      <span class="tt-place">${place}</span>
+      <span class="tt-tag ${tagCls}">${type}</span>
+      <span class="tt-sp ${spCls}">${sp}</span>
+      ${cr}
+      ${late ? '<span class="tt-late">晚点</span>' : ''}
+    </div>`;
+  }).join('');
+}
+
+function switchTab(tab){
+  currentTab = tab;
+  document.getElementById('tabArrive').classList.toggle('active', tab==='arrive');
+  document.getElementById('tabDepart').classList.toggle('active', tab==='depart');
+  renderTimetable();
+}
+
+/* ============ 工具 ============ */
+function fmtTime(min){
+  let day = 1, m = min;
+  while(m >= 1440){ m -= 1440; day++; }
+  const h = String(Math.floor(m/60)).padStart(2,'0');
+  const mm = String(Math.floor(m%60)).padStart(2,'0');
+  return {day, h, mm, str: (day>1?"次日":"") + h + ":" + mm};
+}
+function regionName(city){ return city; }
+function log(msg, cls){
+  const t = fmtTime(gameTime);
+  logLines.push({txt:`[${t.str}] ${msg}`, cls});
+  if(logLines.length > 80) logLines.shift();
+}
+
+/* ============ 调度操作 ============ */
+function trySelect(train){
+  if(selectedTrain === train){ selectedTrain = null; return; }
+  selectedTrain = train;
+  AU.play('select');
+  log(`选择 ${train.no}（${train.from||'始发'}→${train.to||'终到'}），请点空闲到发线股道`, 'info');
+}
+function tryAssignTrack(train, trackId){
+  const tr = TRACKS[trackId-1];
+  if(tr.type !== '到发线'){ log(`✖ ${train.no}：正线不办客`, 'bad'); AU.play('invalid'); return; }
+  if(trackOccupied[trackId-1]){ log(`✖ ${train.no}：${tr.label}已被占用`, 'bad'); AU.play('invalid'); return; }
+  if(throatQueue.length >= THROAT_CAPACITY){ log(`✖ ${train.no}：咽喉已满（${THROAT_CAPACITY}列并行），请稍候`, 'bad'); AU.play('invalid'); return; }
+  // 正晚点判定（接车排进路时刻）
+  const sched = train.at!=null ? train.at : train.dt;
+  if(gameTime > sched){
+    train.lateArr = gameTime - sched;
+    delayCount++; totalDelay += train.lateArr;
+    log(`⚠ ${train.no} 接车晚点 ${Math.round(train.lateArr)} 分`, 'bad');
+  } else {
+    ontimeCount++;
+    log(`✓ ${train.no} 正点接入`, 'ok');
+  }
+  train.state = 'entering';
+  train.track = trackId;
+  trackOccupied[trackId-1] = train;
+  throatQueue.push(3.0);
+  train.enterStart = performance.now();
+  train.dwellEnd = gameTime + DWELL;
+  selectedTrain = null;
+  AU.play('assign');
+  log(`→ ${train.no} 进 ${tr.label}（${tr.yard}）`, 'ok');
+}
+function tryDepart(train){
+  if(train.state !== 'ready') return;
+  if(throatQueue.length >= THROAT_CAPACITY){ log(`✖ ${train.no}：咽喉已满（${THROAT_CAPACITY}列并行）`, 'bad'); AU.play('invalid'); return; }
+  if(train.dt!=null && gameTime > train.dt){
+    train.lateDep = gameTime - train.dt;
+    delayCount++; totalDelay += train.lateDep;
+    AU.play('late');
+    log(`⚠ ${train.no} 发车晚点 ${Math.round(train.lateDep)} 分`, 'bad');
+  } else {
+    ontimeCount++;
+    AU.play('depart');
+    log(`← ${train.no} 发车 → ${train.to||train.from}`, 'ok');
+  }
+  train.state = 'leaving';
+  throatQueue.push(3.0);
+  train.enterStart = performance.now();
+}
+
+/* ============ 主循环 ============ */
+let lastTs = performance.now();
+let endNotified = false;
+function tick(ts){
+  const dt = Math.min(0.1, (ts - lastTs)/1000);
+  lastTs = ts;
+  if(speed > 0){
+    gameTime += dt * speed * 6;   // 1现实秒 = 6游戏分钟（29线大站，节奏稍快）
+    if(gameTime >= SIM_END){
+      gameTime = SIM_END; speed = 0;
+      if(!endNotified){
+        endNotified = true;
+        AU.play('finish');
+        log(`—— 运行图执行完毕（次日03:00），共 ${TOTAL} 趟车次 ——`, 'info');
+        document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>x.classList.remove('active'));
+      }
+    }
+  }
+  if(throatQueue.length){
+    throatQueue = throatQueue.map(t => t - dt).filter(t => t > 0);
+  }
+  updateTrains(dt);
+  audioFrame(dt);
+  render();
+  requestAnimationFrame(tick);
+}
+
+function updateTrains(dt){
+  for(const t of trains){
+    if(t.state === 'waiting'){
+      if(gameTime >= t.spawnAt){
+        if(t.stop){ /* 等待玩家排进路/上股道 */ }
+        else { // 通过车：自动进咽喉横穿
+          t.state = 'entering';
+          t.enterStart = performance.now();
+        }
+      }
+    } else if(t.state === 'entering'){
+      if(t.stop){
+        const p = (performance.now() - t.enterStart) / t.enterDur;
+        t.x = Math.min(1, p);
+        if(p >= 1){ t.state = 'stopped'; t.x = 1; AU.play('arrive'); }
+      } else {
+        // 通过车横穿：从 enterThroat 到 exitThroat
+        const p = (performance.now() - t.enterStart) / 3200;
+        t.x = Math.min(1, p);
+        if(p >= 1){ t.state = 'done'; doneCount++; }
+      }
+    } else if(t.state === 'stopped'){
+      if(gameTime >= t.dwellEnd){ t.state = 'ready'; }
+    } else if(t.state === 'ready'){
+      // 等待玩家放行
+    } else if(t.state === 'leaving'){
+      const p = (performance.now() - t.enterStart) / t.enterDur;
+      t.x = 1 - Math.min(1, p);
+      if(p >= 1){
+        t.state = 'done'; t.x = 0; doneCount++;
+        if(t.track>0) trackOccupied[t.track-1] = null;
+      }
+    }
+  }
+}
+
+/* ============ 渲染 ============ */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+let W = 0, H = 0;
+
+function resize(){
+  const r = cv.parentElement.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  // 29线优先铺满可视高度；过矮的屏幕才兜底滚动（保证行距不低于 25px，高亮框不重叠）
+  const minH = (TRACKS.length - 1) * 25 + 86;
+  const needH = Math.max(r.height, minH);
+  W = r.width; H = needH;
+  cv.width = W * dpr; cv.height = H * dpr;
+  cv.style.width = W + 'px'; cv.style.height = H + 'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+}
+window.addEventListener('resize', resize);
+
+function layout(){
+  const marginL = 70, marginR = 70, marginT = 48, marginB = 38;
+  const leftThroatW = 90, rightThroatW = 90;
+  const trackX0 = marginL + leftThroatW;
+  const trackX1 = W - marginR - rightThroatW;
+  const top = marginT, bottom = H - marginB;
+  const n = TRACKS.length;
+  const gap = (bottom - top) / (n - 1);
+  const ys = [];
+  for(let i=0;i<n;i++){ ys.push(top + gap*i); }
+  // 三场分界（按真实股道号）
+  const yardBounds = {
+    '渝利场':[0,11], '渝万场':[12,20], '渝怀场':[21,28]
+  };
+  return {trackX0, trackX1, ys, gap, top, bottom, leftThroatX0:marginL, leftThroatX1:trackX0,
+          rightThroatX0:trackX1, rightThroatX1:W-marginR, yardBounds, passY: top - 22};
+}
+
+function render(){
+  ctx.clearRect(0,0,W,H);
+  const L = layout();
+  drawBackground(L);
+  drawThroats(L);
+  drawYardLabels(L);
+  drawTracks(L);
+  drawTrains(L);
+  drawUI(L);
+}
+
+function drawBackground(L){
+  ctx.fillStyle = '#0a0e14'; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle = '#8b98a9'; ctx.font = '13px "Microsoft YaHei"';
+  ctx.textAlign='left';
+  ctx.fillText('← 西/北向（成都·郑州·西安·万州）', L.leftThroatX0+6, 20);
+  ctx.textAlign='right';
+  ctx.fillText('东/南向（汉口·贵阳·长沙） →', L.rightThroatX1-6, 20);
+  ctx.textAlign='left';
+  ctx.fillStyle = '#556070'; ctx.font = '12px "Microsoft YaHei"';
+  ctx.fillText('通过式站场 · 列车左右咽喉进出，停靠占股道 / 通过横穿', L.trackX0, H-12);
+}
+
+function drawThroats(L){
+  // 左咽喉
+  ctx.fillStyle = '#101722'; ctx.fillRect(L.leftThroatX0, 30, L.leftThroatX1-L.leftThroatX0, H-60);
+  // 右咽喉
+  ctx.fillStyle = '#101722'; ctx.fillRect(L.rightThroatX0, 30, L.rightThroatX1-L.rightThroatX0, H-60);
+  // 双线引入示意
+  ctx.strokeStyle = '#3a4a5c'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(L.leftThroatX0-12, L.ys[0]-14); ctx.lineTo(L.trackX0, L.ys[0]-14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(L.leftThroatX0-12, L.ys[28]+14); ctx.lineTo(L.trackX0, L.ys[28]+14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(L.rightThroatX1+12, L.ys[0]-14); ctx.lineTo(L.trackX1, L.ys[0]-14); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(L.rightThroatX1+12, L.ys[28]+14); ctx.lineTo(L.trackX1, L.ys[28]+14); ctx.stroke();
+  // 道岔扇形（左）
+  ctx.strokeStyle = '#2d3a4a'; ctx.lineWidth = 1.2;
+  for(let i=0;i<TRACKS.length;i++){
+    ctx.beginPath(); ctx.moveTo(L.leftThroatX0+30, L.ys[0]-14); ctx.lineTo(L.trackX0, L.ys[i]); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(L.leftThroatX0+30, L.ys[28]+14); ctx.lineTo(L.trackX0, L.ys[i]); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(L.rightThroatX1-30, L.ys[0]-14); ctx.lineTo(L.trackX1, L.ys[i]); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(L.rightThroatX1-30, L.ys[28]+14); ctx.lineTo(L.trackX1, L.ys[i]); ctx.stroke();
+  }
+  // 咽喉占用
+  if(throatQueue.length > 0){
+    ctx.fillStyle = '#ff6b6b'; ctx.font='bold 12px "Microsoft YaHei"';
+    ctx.textAlign='center';
+    ctx.fillText(`咽喉占用 ${throatQueue.length}/${THROAT_CAPACITY}`, (L.leftThroatX0+L.leftThroatX1)/2, H-22);
+    ctx.fillText(`咽喉占用 ${throatQueue.length}/${THROAT_CAPACITY}`, (L.rightThroatX0+L.rightThroatX1)/2, H-22);
+    ctx.textAlign='left';
+  }
+}
+
+function drawYardLabels(L){
+  ctx.font = 'bold 12px "Microsoft YaHei"'; ctx.textAlign='center';
+  for(const [name, range] of Object.entries(L.yardBounds)){
+    const yMid = (L.ys[range[0]] + L.ys[range[1]])/2;
+    ctx.fillStyle = '#6b7c90';
+    ctx.fillText(name, (L.trackX0+L.trackX1)/2, yMid);
+  }
+  ctx.textAlign='left';
+}
+
+function drawTracks(L){
+  const {trackX0, trackX1, ys} = L;
+  for(let i=0;i<TRACKS.length;i++){
+    const tr = TRACKS[i], y = ys[i];
+    const occupied = trackOccupied[i];
+    const highlight = selectedTrain && !occupied && tr.type==='到发线';
+    let trackColor;
+    if(occupied){
+      const ty = classify(occupied);
+      trackColor = ty === '标杆' ? '#f0c030' : (ty === '跨局' ? '#4aa8ff' : '#3ecf8e');
+    } else if(highlight){
+      trackColor = '#3ecf8e';
+    } else {
+      trackColor = tr.type==='正线' ? '#4a5a6c' : '#6b7c90';
+    }
+    ctx.strokeStyle = trackColor;
+    ctx.lineWidth = (occupied||highlight) ? 4 : 2.5;
+    ctx.beginPath(); ctx.moveTo(trackX0, y); ctx.lineTo(trackX1, y); ctx.stroke();
+    if(highlight){
+      ctx.fillStyle = 'rgba(62,207,142,0.13)';
+      ctx.fillRect(trackX0, y-13, trackX1-trackX0, 26);
+    }
+    // 股道名（左侧）
+    ctx.fillStyle = highlight ? '#3ecf8e' : (tr.type==='正线' ? '#5a6a7c' : '#c5d0dc');
+    ctx.font = highlight ? 'bold 11px "Microsoft YaHei"' : '10px "Microsoft YaHei"';
+    ctx.textAlign = 'right';
+    ctx.fillText(tr.label, trackX0-6, y+4);
+    // 场名（右侧小标）
+    ctx.fillStyle = '#46566a'; ctx.font='9px "Microsoft YaHei"';
+    ctx.textAlign='left';
+    if(i===0||TRACKS[i].yard!==TRACKS[i-1].yard){
+      ctx.fillText(tr.yard, trackX1+6, y+4);
+    }
+  }
+  ctx.textAlign='left';
+}
+
+// 列车停靠位置（股道中部偏进入侧）
+function parkX(L, t){
+  const len = 46;
+  const span = L.trackX1 - L.trackX0;
+  return L.trackX0 + span*0.5 - len/2;
+}
+
+function drawTrains(L){
+  const {trackX0, trackX1, ys, leftThroatX0, rightThroatX1, passY} = L;
+  const len = 46, h = 13;
+  for(const t of trains){
+    if(t.state==='done') continue;
+    if(t.state==='waiting'){
+      if(gameTime < t.spawnAt) continue;   // 未到出现时刻的不画（与命中/侧栏一致）
+      // 在对应咽喉外侧排队（小标记）
+      const arr = trains.filter(x=>x.state==='waiting' && x.enterThroat===t.enterThroat && gameTime>=x.spawnAt);
+      const idx = arr.indexOf(t);
+      const baseX = t.enterThroat==='L' ? leftThroatX0+8 : rightThroatX1-len-8;
+      const wy = L.top + 10 + (idx%10)*24;
+      if(wy < L.bottom-40) drawTrainShape(baseX, wy, len, h, t, true);
+      continue;
+    }
+    if(!t.stop){ // 通过车：横穿
+      const y = passY;
+      const p = t.x;
+      const x = (t.enterThroat==='L')
+        ? leftThroatX0 + (rightThroatX1 - leftThroatX0)*p
+        : rightThroatX1 - (rightThroatX1 - leftThroatX0)*p - len;
+      drawTrainShape(x, y, len, h, t, false, t.enterThroat==='L');
+      continue;
+    }
+    let x, y = ys[t.track-1];
+    if(t.state==='entering'){
+      const p = t.x;
+      const px = parkX(L, t);
+      // 从进入侧滑向停靠位
+      x = (t.enterThroat==='L')
+        ? (L.trackX0 - 6) + (px - (L.trackX0-6))*p
+        : (L.trackX1 + 6) - ((L.trackX1+6) - px)*p;
+    } else if(t.state==='leaving'){
+      const p = t.x;
+      const px = parkX(L, t);
+      x = (t.exitThroat==='L')
+        ? px - (px - (L.trackX0-6))*p
+        : px + ((L.trackX1+6) - px)*p;
+    } else {
+      x = parkX(L, t);
+    }
+    drawTrainShape(x, y, len, h, t, false, t.enterThroat==='L');
+  }
+}
+
+function drawTrainShape(x, y, len, h, t, waiting, headRight){
+  const type = classify(t);
+  const col = type === '标杆' ? '#f0c030' : (type === '跨局' ? '#4aa8ff' : '#3ecf8e');
+  ctx.save();
+  if(waiting){
+    const blink = Math.floor(performance.now()/400)%2===0;
+    ctx.globalAlpha = blink ? 1 : 0.55;
+  }
+  ctx.fillStyle = col;
+  ctx.beginPath();
+  if(headRight){
+    ctx.moveTo(x+len, y+h/2); ctx.lineTo(x+len-10, y); ctx.lineTo(x, y); ctx.lineTo(x, y+h); ctx.lineTo(x+len-10, y+h);
+  } else {
+    ctx.moveTo(x, y+h/2); ctx.lineTo(x+10, y); ctx.lineTo(x+len, y); ctx.lineTo(x+len, y+h); ctx.lineTo(x+10, y+h);
+  }
+  ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#ffffff'; ctx.globalAlpha *= 0.85;
+  ctx.fillRect(x+6, y+2, len-14, 3);
+  ctx.globalAlpha = waiting ? (Math.floor(performance.now()/400)%2===0?1:0.55) : 1;
+  ctx.fillStyle = '#fff'; ctx.font='bold 10px Consolas';
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(t.no, x+len/2, y+h/2+0.5);
+  ctx.restore();
+  if(waiting){
+    ctx.fillStyle = col; ctx.font='10px "Microsoft YaHei"'; ctx.textAlign='left';
+    const label = t.from ? (t.from+'→') : ('→'+t.to);
+    ctx.fillText(t.no+' '+label, x+len+4, y+h/2+4);
+  }
+  ctx.textBaseline='alphabetic';
+}
+
+function drawUI(L){
+  if(selectedTrain){
+    ctx.fillStyle = '#f0a030'; ctx.font='bold 14px "Microsoft YaHei"'; ctx.textAlign='left';
+    ctx.fillText(`▶ 为 ${selectedTrain.no} 排进路：点绿色到发线股道（再点列车取消）`, 20, 40);
+  }
+  const lx = W - 230, ly = 16;
+  ctx.font='11px "Microsoft YaHei"'; ctx.textAlign='left';
+  ctx.fillStyle = '#f0c030'; ctx.fillRect(lx, ly, 12, 12); ctx.fillStyle='#c5d0dc'; ctx.fillText('标杆', lx+16, ly+10);
+  ctx.fillStyle = '#4aa8ff'; ctx.fillRect(lx+52, ly, 12, 12); ctx.fillStyle='#c5d0dc'; ctx.fillText('跨局', lx+68, ly+10);
+  ctx.fillStyle = '#3ecf8e'; ctx.fillRect(lx+104, ly, 12, 12); ctx.fillStyle='#c5d0dc'; ctx.fillText('站站乐', lx+120, ly+10);
+  ctx.fillStyle = '#b48cff'; ctx.fillRect(lx+156, ly, 12, 12); ctx.fillStyle='#c5d0dc'; ctx.fillText('通过', lx+172, ly+10);
+}
+
+/* ============ 侧栏/顶栏更新 ============ */
+function updateSidebar(){
+  const waiting = trains.filter(t=>t.state==='waiting' && gameTime>=t.spawnAt && t.stop);
+  const ready = trains.filter(t=>t.state==='ready');
+  document.getElementById('arriveCount').textContent = waiting.length;
+  document.getElementById('departCount').textContent = ready.length;
+
+  const aq = document.getElementById('arriveQueue');
+  aq.innerHTML = waiting.length ? '' : '<div class="tip">暂无待接车</div>';
+  waiting.forEach(t=>{
+    const late = (t.at!=null && gameTime>t.at) || (t.at==null && gameTime>t.dt);
+    const div = document.createElement('div');
+    div.className = 'item' + (late?' warn':'');
+    const place = t.from ? t.from : ('始发→'+t.to);
+    div.innerHTML = `<span class="tn">${t.no}</span><span class="tm">${fmtTime(t.at!=null?t.at:t.dt).str}</span><span class="dir">${place}${late?' ⚠晚点':''}</span>`;
+    div.onclick = ()=>trySelect(t);
+    aq.appendChild(div);
+  });
+
+  const dq = document.getElementById('departQueue');
+  dq.innerHTML = ready.length ? '' : '<div class="tip">暂无待发车</div>';
+  ready.forEach(t=>{
+    const late = t.dt!=null && gameTime>t.dt;
+    const div = document.createElement('div');
+    div.className = 'item' + (late?' warn':'');
+    div.innerHTML = `<span class="tn">${t.no}</span><span class="tm">${fmtTime(t.dt!=null?t.dt:t.at).str}</span><span class="dir">${late?'⚠晚点':'待发'} ${t.to||t.from}</span>`;
+    div.onclick = ()=>tryDepart(t);
+    dq.appendChild(div);
+  });
+
+  document.getElementById('statsBox').innerHTML =
+    `已办车次 <b>${doneCount}</b> / ${TOTAL}<br>` +
+    `正点 <b style="color:#3ecf8e">${ontimeCount}</b>　晚点 <b style="color:#ff6b6b">${delayCount}</b><br>` +
+    `累计晚点 <b>${Math.round(totalDelay)}</b> 分钟<br>` +
+    `咽喉并行 <b>${throatQueue.length}</b>/${THROAT_CAPACITY}`;
+
+  const lb = document.getElementById('logBox');
+  lb.innerHTML = logLines.map(l=>`<div class="${l.cls}">${l.txt}</div>`).join('');
+  lb.scrollTop = lb.scrollHeight;
+
+  renderTimetable();
+}
+
+function updateTopbar(){
+  const t = fmtTime(gameTime);
+  document.getElementById('clockText').textContent = t.str;
+  document.getElementById('clockDay').textContent = '第' + t.day + '日';
+  document.getElementById('ontime').textContent = ontimeCount;
+  document.getElementById('delay').textContent = delayCount;
+  document.getElementById('done').textContent = doneCount + '/' + TOTAL;
+}
+
+/* ============ 事件 ============ */
+document.querySelectorAll('#speedGroup button[data-s]').forEach(b=>{
+  b.addEventListener('click', ()=>{
+    speed = parseInt(b.dataset.s);
+    document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+  });
+});
+document.getElementById('resetBtn').addEventListener('click', resetGame);
+
+function resetGame(){
+  gameTime = SIM_START; speed = 1; selectedTrain = null;
+  throatQueue.length = 0; endNotified = false; logLines = [];
+  for(let i=0;i<trackOccupied.length;i++) trackOccupied[i] = null;
+  trains.length = 0;
+  ontimeCount = delayCount = doneCount = totalDelay = 0;
+  init();
+  document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>x.classList.toggle('active', x.dataset.s==='1'));
+  log('调度台已重新开始，模拟时间 00:00', 'info');
+  updateSidebar(); updateTopbar();
+}
+
+// 命中检测
+function hitTest(mx, my){
+  const L = layout();
+  const len = 46, h = 13;
+  // 1. 待接车（咽喉外侧排队）
+  const wArr = trains.filter(t=>t.state==='waiting' && t.stop && gameTime>=t.spawnAt);
+  for(const t of wArr){
+    const arr = wArr.filter(x=>x.enterThroat===t.enterThroat);
+    const idx = arr.indexOf(t);
+    const baseX = t.enterThroat==='L' ? L.leftThroatX0+8 : L.rightThroatX1-len-8;
+    const wy = L.top + 10 + (idx%10)*24;
+    if(wy < L.bottom-40 && mx>=baseX-2 && mx<=baseX+len+50 && my>=wy-3 && my<=wy+h+3) return {type:'select', train:t};
+  }
+  // 2. 股道上待发车（ready）
+  for(const t of trains){
+    if(t.state!=='ready') continue;
+    const y = L.ys[t.track-1];
+    const x0 = parkX(L,t)-8, x1 = parkX(L,t)+len+8;
+    if(mx>=x0 && mx<=x1 && my>=y-12 && my<=y+12) return {type:'depart', train:t};
+  }
+  // 3. 股道排进路（选中后就近命中空闲到发线）
+  if(selectedTrain){
+    let best=-1, bestD=Infinity;
+    for(let i=0;i<TRACKS.length;i++){
+      if(TRACKS[i].type!=='到发线') continue;
+      const d = Math.abs(my - L.ys[i]);
+      if(d<bestD){ bestD=d; best=i; }
+    }
+    if(bestD < L.gap*0.6) return {type:'track', trackId:best+1};
+  }
+  return null;
+}
+
+cv.addEventListener('click', (e)=>{
+  const rect = cv.getBoundingClientRect();
+  const mx = e.clientX - rect.left;
+  const my = e.clientY - rect.top;
+  const hit = hitTest(mx, my);
+  if(!hit) return;
+  if(hit.type==='select') trySelect(hit.train);
+  else if(hit.type==='depart') tryDepart(hit.train);
+  else if(hit.type==='track') tryAssignTrack(selectedTrain, hit.trackId);
+});
+cv.addEventListener('mousemove', (e)=>{
+  const rect = cv.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  cv.style.cursor = hitTest(mx,my) ? 'pointer' : 'default';
+});
+
+/* ============ 启动 ============ */
+init();
+renderTimetable();
+resize();
+document.getElementById('tabArrive').addEventListener('click', ()=>switchTab('arrive'));
+document.getElementById('tabDepart').addEventListener('click', ()=>switchTab('depart'));
+log('调度台启动，模拟时间 00:00（重庆北·通过式·14台29线）', 'info');
+log('提示：停靠车需你点列车→点股道接车，再到股道上点列车放行；通过车自动横穿', 'info');
+requestAnimationFrame(tick);
+initAudioUI();
+setInterval(()=>{ updateSidebar(); updateTopbar(); }, 300);
+</script>
+</body>
+</html>
