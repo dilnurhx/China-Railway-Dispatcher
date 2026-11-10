@@ -791,6 +791,13 @@ function tryAccept(train){
 function tryAssignTrack(train, trackId){
   if(!train) return;
   if(simEnded){ log(`✖ ${train.train}：运行图时段已结束，不再受理接车`, 'bad'); AU.play('invalid'); return; }     // S07
+  // S21：暂停时禁止"开始新的"接车作业。
+  // 已开始的进站/停站/驶离不受影响（由 tick 冻结），此处只拦新作业。
+  if(speed === 0){
+    log(`⏸ 模拟已暂停，请恢复运行后再接车（${train.train}）`, 'bad');
+    AU.play('invalid');
+    return;   // 保留 selectedArrive，恢复运行后可直接再点股道
+  }
   const tr = TRACKS[trackId-1];
   if(tr.type !== '到发线'){ log(`✖ ${train.train}：正线不办客`, 'bad'); AU.play('invalid'); return; }
   if(trackOccupied[trackId-1]){ log(`✖ ${train.train}：${tr.label}已被占用`, 'bad'); AU.play('invalid'); return; }
@@ -819,6 +826,12 @@ function tryDepart(train){
     return;
   }
   if(simEnded){ log(`✖ ${train.train}：运行图时段已结束，不再受理发车`, 'bad'); AU.play('invalid'); return; }     // S07
+  // S21：暂停时禁止"开始新的"发车作业；已开始的驶离不受影响（由 tick 冻结）
+  if(speed === 0){
+    log(`⏸ 模拟已暂停，请恢复运行后再发车（${train.train}）`, 'bad');
+    AU.play('invalid');
+    return;
+  }
   if(throatQueue.length >= THROAT_CAPACITY){ log(`✖ ${train.train}：咽喉已满（${THROAT_CAPACITY}列并行中）`, 'bad'); AU.play('invalid'); return; }
   // S02：必须到达计划发车时刻才允许发车（提前调入股道 ≠ 提前发车）
   if(gameTime < train.sched){

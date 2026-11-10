@@ -1,5 +1,5 @@
 --- 沙坪坝站_调度模拟器.html.bak_20261110_修正前	2026-11-10 12:57:23.487793800 +0800
-+++ 沙坪坝站_调度模拟器.html	2026-11-10 13:48:47.170867800 +0800
++++ 沙坪坝站_调度模拟器.html	2026-11-10 13:59:34.554645900 +0800
 @@ -55,6 +55,8 @@
    .queue .item .tm { color:var(--dim); font-family:Consolas,monospace; }
    .queue .item .dir { margin-left:auto; color:var(--dim); font-size:12px; }
@@ -202,7 +202,7 @@
  }
  
  function switchTab(tab){
-@@ -696,134 +751,202 @@
+@@ -696,134 +751,215 @@
    if(logLines.length > 80) logLines.shift();
  }
  
@@ -246,6 +246,13 @@
  function tryAssignTrack(train, trackId){
 +  if(!train) return;
 +  if(simEnded){ log(`✖ ${train.train}：运行图时段已结束，不再受理接车`, 'bad'); AU.play('invalid'); return; }     // S07
++  // S21：暂停时禁止"开始新的"接车作业。
++  // 已开始的进站/停站/驶离不受影响（由 tick 冻结），此处只拦新作业。
++  if(speed === 0){
++    log(`⏸ 模拟已暂停，请恢复运行后再接车（${train.train}）`, 'bad');
++    AU.play('invalid');
++    return;   // 保留 selectedArrive，恢复运行后可直接再点股道
++  }
    const tr = TRACKS[trackId-1];
    if(tr.type !== '到发线'){ log(`✖ ${train.train}：正线不办客`, 'bad'); AU.play('invalid'); return; }
    if(trackOccupied[trackId-1]){ log(`✖ ${train.train}：${tr.label}已被占用`, 'bad'); AU.play('invalid'); return; }
@@ -289,6 +296,12 @@
 +    return;
 +  }
 +  if(simEnded){ log(`✖ ${train.train}：运行图时段已结束，不再受理发车`, 'bad'); AU.play('invalid'); return; }     // S07
++  // S21：暂停时禁止"开始新的"发车作业；已开始的驶离不受影响（由 tick 冻结）
++  if(speed === 0){
++    log(`⏸ 模拟已暂停，请恢复运行后再发车（${train.train}）`, 'bad');
++    AU.play('invalid');
++    return;
++  }
    if(throatQueue.length >= THROAT_CAPACITY){ log(`✖ ${train.train}：咽喉已满（${THROAT_CAPACITY}列并行中）`, 'bad'); AU.play('invalid'); return; }
 -  // 判定是否晚点
 -  if(gameTime > train.sched){
@@ -464,7 +477,7 @@
  }
  
  /* ============ 渲染 ============ */
-@@ -966,6 +1089,28 @@
+@@ -966,6 +1102,28 @@
    ctx.setLineDash([]);
  }
  
@@ -493,7 +506,7 @@
  function drawTrains(L){
    const {trackX0, trackX1, ys, throatX0} = L;
    const len = 46, h = 14;
-@@ -986,21 +1131,19 @@
+@@ -986,21 +1144,19 @@
      }
      drawTrainShape(x, y, len, h, t);
    }
@@ -524,7 +537,7 @@
    });
  }
  
-@@ -1009,10 +1152,11 @@
+@@ -1009,10 +1165,11 @@
    const isArrive = t.kind === 'arrive';
    const type = classify(t);
    const col = type === '标杆' ? '#f0c030' : (type === '跨局' ? '#4aa8ff' : '#3ecf8e');
@@ -538,7 +551,7 @@
    }
    // 车头（尖头）
    ctx.fillStyle = col;
-@@ -1030,16 +1174,16 @@
+@@ -1030,16 +1187,16 @@
    // 车顶亮条
    ctx.fillStyle = '#ffffff'; ctx.globalAlpha *= 0.9;
    ctx.fillRect(x+6, y+2, len-14, 3);
@@ -559,7 +572,7 @@
      ctx.fillText(t.train + ' ' + t.from, x+len+4, y+h/2+4);
    }
  }
-@@ -1086,17 +1230,23 @@
+@@ -1086,17 +1243,23 @@
    dep.forEach(t=>{
      const late = gameTime > t.sched;
      const notReady = t.state === 'waiting';
@@ -588,7 +601,7 @@
  
    const lb = document.getElementById('logBox');
    lb.innerHTML = logLines.map(l=>`<div class="${l.cls}">${l.txt}</div>`).join('');
-@@ -1108,16 +1258,23 @@
+@@ -1108,16 +1271,23 @@
  function updateTopbar(){
    const t = fmtTime(gameTime);
    document.getElementById('clockText').textContent = t.str;
@@ -614,7 +627,7 @@
      speed = parseInt(b.dataset.s);
      document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>x.classList.remove('active'));
      b.classList.add('active');
-@@ -1132,11 +1289,13 @@
+@@ -1132,11 +1302,13 @@
    speed = 1;
    selectedArrive = null;
    throatQueue = [];
@@ -629,7 +642,7 @@
    init();
    // 恢复 1x 高亮
    document.querySelectorAll('#speedGroup button[data-s]').forEach(x=>{
-@@ -1147,18 +1306,22 @@
+@@ -1147,18 +1319,22 @@
    updateTopbar();
  }
  
@@ -660,7 +673,7 @@
      }
    }
    // 2. 股道上的待发车（ready，右侧尽头停靠）
-@@ -1194,6 +1357,7 @@
+@@ -1194,6 +1370,7 @@
    if(!hit) return;
    if(hit.type === 'accept'){ tryAccept(hit.train); }
    else if(hit.type === 'depart'){ tryDepart(hit.train); }
